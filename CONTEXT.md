@@ -1,15 +1,11 @@
 # hush-noise
 
-A reference implementation of the Noise Protocol Framework — a reusable encrypted transport primitive. The Go implementation (`github.com/julianbonomini/hush-noise/go`) is the reference: it was built first, it passes the official test vectors, and it powers hush-relay. A Rust port is planned as the canonical portable implementation — Rust compiles to every platform (iOS, Android, macOS, Linux, WASM) and enables Swift/Kotlin bindings via UniFFI, which Go cannot. The protocol spec, cipher suite, and test vectors are language-agnostic; any correct implementation of `Noise_XX_25519_ChaChaPoly_BLAKE2s` is interoperable. Both implementations live in the same repo (`go/` and `rust/`), sharing the test vectors in `testdata/`. The Go module path is `github.com/julianbonomini/hush-noise/go`; the Rust crate is named `hush-noise` on crates.io (not yet published).
+A Rust implementation of the Noise Protocol Framework — a reusable encrypted transport primitive. The Rust crate is the canonical portable implementation: it compiles to every platform (iOS, Android, macOS, Linux, WASM) and enables Swift/Kotlin bindings via UniFFI. It implements `Noise_XX_25519_ChaChaPoly_BLAKE2s`, verified against the official cacophony test vectors. The Rust crate is named `hush-noise` (not yet published to crates.io).
 
 ## Language
 
-**Reference Implementation**:
-The Go implementation (`go/`). Written first, spec-compliant against the official Test Vectors, and used by hush-relay. Not deprecated — remains the authoritative implementation indefinitely.
-_Avoid_: original, primary, main
-
 **Portable Implementation**:
-The planned Rust implementation (`rust/`). The canonical build for the hush client stack — compiles to iOS, Android, macOS, Linux, and WASM as a static library. Exposes Swift and Kotlin bindings via UniFFI. A 1:1 functional port of the Reference Implementation; verified against the same Test Vectors.
+The Rust crate (`rust/`). Compiles to iOS, Android, macOS, Linux, and WASM as a static library. Exposes Swift and Kotlin bindings via UniFFI. Verified against the official Test Vectors for `Noise_XX_25519_ChaChaPoly_BLAKE2s`.
 _Avoid_: mobile implementation, cross-platform version
 
 **UniFFI**:
@@ -33,7 +29,7 @@ A 2-byte big-endian length prefix prepended to every encrypted message by the li
 _Avoid_: length-prefix, header, envelope
 
 **Expected Failure**:
-A runtime error the caller should handle: I/O errors, malformed handshake messages, connection drops. Returned as a plain `error` from `Dial`, `Accept`, `Send`, or `Receive`. Recoverable — the caller may retry or surface to the user.
+A runtime error the caller should handle: I/O errors, malformed handshake messages, connection drops. Returned as `Result<_, String>` from `dial`, `accept`, `send`, or `receive`. Recoverable — the caller may retry or surface to the user.
 _Avoid_: error, exception
 
 **Invariant Violation**:
@@ -41,15 +37,15 @@ A condition that should be impossible given correct library code: e.g. sending b
 _Avoid_: internal error, fatal error
 
 **Session**:
-A fully negotiated, bidirectional encrypted channel between two peers, produced by completing a Handshake Pattern. Exposes `Send`, `Receive`, `RemotePublicKey`, and `Close`. Concurrent-safe: `Send` and `Receive` hold independent locks (Noise uses separate cipher states per direction), so callers may use them from different goroutines freely. Sessions are not resumable — if the transport dies, the session is dead and the caller must establish a new one with a fresh handshake. The library guarantees the cryptographic identity of the remote peer; trust policy (whether to accept that identity) is the caller's responsibility.
+A fully negotiated, bidirectional encrypted channel between two peers, produced by completing a Handshake Pattern. Exposes `send`, `receive`, `remote_public_key`, and `close`. Concurrent-safe: `send` and `receive` use independent locks (Noise uses separate cipher states per direction), so callers may use them from different threads freely. Sessions are not resumable — if the transport dies, the session is dead and the caller must establish a new one with a fresh handshake. The library guarantees the cryptographic identity of the remote peer; trust policy (whether to accept that identity) is the caller's responsibility.
 _Avoid_: connection, tunnel, pipe
 
 **Initiator**:
-The peer that calls `Dial(ctx, conn, keypair)` — sends the first handshake message.
+The peer that calls `dial(conn, keypair)` — sends the first handshake message.
 _Avoid_: client, sender, caller
 
 **Responder**:
-The peer that calls `Accept(ctx, conn, keypair)` — receives the first handshake message.
+The peer that calls `accept(conn, keypair)` — receives the first handshake message.
 _Avoid_: server, receiver, listener
 
 **Test Vectors**:
