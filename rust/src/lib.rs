@@ -7,6 +7,7 @@
 /// Primitives: RustCrypto (`x25519-dalek`, `chacha20poly1305`, `blake2`).
 
 pub(crate) mod cipher;
+pub(crate) mod keypair;
 
 #[cfg(test)]
 mod tests {
