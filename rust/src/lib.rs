@@ -33,7 +33,7 @@ mod tests {
     /// and that testdata/cacophony.json is accessible from tests.
     #[test]
     fn test_vectors_file_is_accessible() {
-        let vectors = include_str!("../../go/testdata/cacophony.json");
+        let vectors = include_str!("../testdata/cacophony.json");
         assert!(!vectors.is_empty(), "cacophony.json should not be empty");
         assert!(
             vectors.contains("Noise_XX_25519_ChaChaPoly_BLAKE2s"),
@@ -81,7 +81,7 @@ mod tests {
     /// Passing these vectors proves spec-compliance, not just self-consistency.
     #[test]
     fn test_spec_vectors() {
-        let raw = include_str!("../../go/testdata/cacophony.json");
+        let raw = include_str!("../testdata/cacophony.json");
         let file: CacophonyFile = serde_json::from_str(raw).expect("parse cacophony.json");
         assert!(
             !file.vectors.is_empty(),
