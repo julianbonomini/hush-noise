@@ -9,6 +9,7 @@ pub(crate) mod cipher;
 pub(crate) mod framing;
 pub(crate) mod handshake;
 pub(crate) mod keypair;
+pub mod session;
 pub(crate) mod symmetric;
 
 #[cfg(test)]
@@ -113,9 +114,9 @@ mod tests {
 
         // msg2: -> s, se
         let mut msg2 = Vec::new();
-        let (mut i_fi, mut i_fr, i_hash) =
+        let (mut i_fi, i_fr, i_hash, _) =
             hs_i.write_msg2(&mut msg2, &payload2).expect("write_msg2");
-        let (mut r_fi, mut r_fr, r_hash) =
+        let (r_fi, mut r_fr, r_hash, _) =
             hs_r.read_msg2(&mut Cursor::new(&msg2)).expect("read_msg2");
 
         // Assert handshake hash matches for both sides.

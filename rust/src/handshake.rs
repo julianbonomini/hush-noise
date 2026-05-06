@@ -123,12 +123,12 @@ impl HandshakeState {
     }
 
     /// Sends: -> s, se [payload]
-    /// Returns (fromInitiator, fromResponder, handshake_hash) on success.
+    /// Returns (fromInitiator, fromResponder, handshake_hash, remote_static) on success.
     pub(crate) fn write_msg2(
         mut self,
         w: &mut dyn Write,
         payload: &[u8],
-    ) -> Result<(CipherState, CipherState, [u8; 32]), String> {
+    ) -> Result<(CipherState, CipherState, [u8; 32], [u8; 32]), String> {
         let enc_s = self.ss.encrypt_and_hash(&self.s.public_key);
 
         // se: initiator's static × responder's ephemeral
@@ -142,16 +142,17 @@ impl HandshakeState {
         write_frame(w, &msg).map_err(|e| format!("noise: write msg2: {}", e))?;
 
         let hash = self.ss.h;
+        let rs = self.rs;
         let (fi, fr) = self.ss.split();
-        Ok((fi, fr, hash))
+        Ok((fi, fr, hash, rs))
     }
 
     /// Receives: -> s, se [payload]
-    /// Returns (fromInitiator, fromResponder, handshake_hash) on success.
+    /// Returns (fromInitiator, fromResponder, handshake_hash, remote_static) on success.
     pub(crate) fn read_msg2(
         mut self,
         r: &mut dyn Read,
-    ) -> Result<(CipherState, CipherState, [u8; 32]), String> {
+    ) -> Result<(CipherState, CipherState, [u8; 32], [u8; 32]), String> {
         let msg = read_frame(r).map_err(|e| format!("noise: read msg2: {}", e))?;
 
         if msg.len() < 32 + TAG_SIZE {
@@ -169,10 +170,12 @@ impl HandshakeState {
         self.ss.decrypt_and_hash(msg)?;
 
         let hash = self.ss.h;
+        let rs = self.rs;
         let (fi, fr) = self.ss.split();
-        Ok((fi, fr, hash))
+        Ok((fi, fr, hash, rs))
     }
 
+    #[allow(dead_code)]
     pub(crate) fn remote_static(&self) -> [u8; 32] {
         self.rs
     }
@@ -217,8 +220,8 @@ mod tests {
 
         // msg2: initiator -> responder (produces cipher states)
         let mut msg2 = Vec::new();
-        let (i_fi, i_fr, i_hash) = hs_i.write_msg2(&mut msg2, payload2).unwrap();
-        let (r_fi, r_fr, r_hash) = hs_r.read_msg2(&mut Cursor::new(&msg2)).unwrap();
+        let (i_fi, i_fr, i_hash, _) = hs_i.write_msg2(&mut msg2, payload2).unwrap();
+        let (r_fi, r_fr, r_hash, _) = hs_r.read_msg2(&mut Cursor::new(&msg2)).unwrap();
 
         (i_hash, r_hash, i_fi, i_fr, r_fi, r_fr)
     }

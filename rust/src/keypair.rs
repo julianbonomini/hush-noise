@@ -7,7 +7,7 @@ use x25519_dalek::{PublicKey, StaticSecret};
 ///
 /// `public_key` is public — safe to share. The private key is accessible
 /// only via `private()` to reduce accidental exposure.
-pub(crate) struct Keypair {
+pub struct Keypair {
     private_key: [u8; 32],
     pub public_key: [u8; 32],
 }
@@ -15,7 +15,7 @@ pub(crate) struct Keypair {
 impl Keypair {
     /// Constructs a Keypair from raw private and public key bytes.
     /// Use this when restoring a previously serialised keypair.
-    pub(crate) fn new(priv_key: [u8; 32], pub_key: [u8; 32]) -> Self {
+    pub fn new(priv_key: [u8; 32], pub_key: [u8; 32]) -> Self {
         Self {
             private_key: priv_key,
             public_key: pub_key,
@@ -24,14 +24,14 @@ impl Keypair {
 
     /// Returns the raw private key bytes.
     /// Handle with care — sensitive key material.
-    pub(crate) fn private(&self) -> [u8; 32] {
+    pub fn private(&self) -> [u8; 32] {
         self.private_key
     }
 }
 
 /// Generates a fresh X25519 Keypair from a cryptographically secure random source.
 /// Applies RFC 7748 clamping. Callers are responsible for persisting the result.
-pub(crate) fn generate_keypair() -> Keypair {
+pub fn generate_keypair() -> Keypair {
     let mut priv_bytes = [0u8; 32];
     rand::thread_rng().fill_bytes(&mut priv_bytes);
 
