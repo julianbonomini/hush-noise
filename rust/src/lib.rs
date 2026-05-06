@@ -8,6 +8,7 @@
 
 pub(crate) mod cipher;
 pub(crate) mod keypair;
+pub(crate) mod symmetric;
 
 #[cfg(test)]
 mod tests {
