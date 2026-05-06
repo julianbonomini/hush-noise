@@ -17,3 +17,16 @@ jobs:
           go-version: "1.22"
       - run: go build ./...
       - run: go test -race ./...
+
+  test-rust:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: rust
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions-rs/toolchain@v1
+        with:
+          toolchain: stable
+          override: true
+      - run: cargo test
