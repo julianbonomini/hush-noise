@@ -1,8 +1,7 @@
-/// hush-noise — Rust Portable Implementation
+/// hush-noise — Noise_XX_25519_ChaChaPoly_BLAKE2s
 ///
-/// A 1:1 port of the Go Reference Implementation (`go/`).
-/// Implements `Noise_XX_25519_ChaChaPoly_BLAKE2s` from the Noise Protocol spec.
-/// Verified against the official cacophony test vectors (shared with the Go implementation).
+/// Implements the Noise Protocol Framework using RustCrypto primitives.
+/// Verified against the official cacophony test vectors.
 ///
 /// The `ffi` module exposes the public API to Swift and Kotlin via UniFFI.
 pub(crate) mod cipher;
