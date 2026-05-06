@@ -6,6 +6,8 @@
 ///
 /// Primitives: RustCrypto (`x25519-dalek`, `chacha20poly1305`, `blake2`).
 
+pub(crate) mod cipher;
+
 #[cfg(test)]
 mod tests {
     /// Tracer bullet: confirms the test infrastructure compiles and runs,
