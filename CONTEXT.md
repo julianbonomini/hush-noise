@@ -1,6 +1,6 @@
 # hush-noise
 
-A Go implementation of the Noise Protocol Framework — a reusable encrypted transport primitive. Written in Go for simplicity and portability. Module path: `github.com/julianbonomini/hush-noise`. Single `noise` package at the root. Implemented from scratch against the Noise spec; `golang.org/x/crypto` provides the raw primitives (X25519, ChaCha20-Poly1305, BLAKE2s) but the Noise state machine is not delegated to a third-party library. It is not an application; it is the engine that other hush components pull in to establish secure, authenticated channels between peers.
+A reference implementation of the Noise Protocol Framework — a reusable encrypted transport primitive. The Go implementation (`github.com/julianbonomini/hush-noise`) is the reference: it was built first, it passes the official test vectors, and it powers hush-relay. A Rust port is planned as the canonical portable implementation — Rust compiles to every platform (iOS, Android, macOS, Linux, WASM) and enables Swift/Kotlin bindings via UniFFI, which Go cannot. The protocol spec, cipher suite, and test vectors are language-agnostic; any correct implementation of `Noise_XX_25519_ChaChaPoly_BLAKE2s` is interoperable. Single `noise` package at the root. Implemented from scratch against the Noise spec; `golang.org/x/crypto` provides the raw primitives (X25519, ChaCha20-Poly1305, BLAKE2s) but the Noise state machine is not delegated to a third-party library.
 
 ## Language
 
