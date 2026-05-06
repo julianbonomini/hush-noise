@@ -9,9 +9,24 @@ import (
 // Keypair is a static X25519 public/private key pair representing a peer's
 // long-term identity. Generated and stored by the caller; passed into Dial
 // and Accept. The library never generates or persists keypairs.
+//
+// PublicKey is exported for sharing with peers; the private key is accessible
+// only via the Private() method to reduce accidental exposure.
 type Keypair struct {
-	PrivateKey [32]byte
+	privateKey [32]byte
 	PublicKey  [32]byte
+}
+
+// NewKeypair constructs a Keypair from raw private and public key bytes.
+// Use this when restoring a previously serialised keypair.
+func NewKeypair(priv, pub [32]byte) Keypair {
+	return Keypair{privateKey: priv, PublicKey: pub}
+}
+
+// Private returns the raw private key bytes.
+// Handle the return value with care — it is sensitive key material.
+func (kp Keypair) Private() [32]byte {
+	return kp.privateKey
 }
 
 // GenerateKeypair generates a fresh X25519 Keypair using a cryptographically
@@ -32,22 +47,11 @@ func GenerateKeypair() (Keypair, error) {
 		return Keypair{}, err
 	}
 	var kp Keypair
-	copy(kp.PrivateKey[:], priv[:])
+	copy(kp.privateKey[:], priv[:])
 	copy(kp.PublicKey[:], pub)
 	return kp, nil
 }
 
-// derivePublicKey computes the X25519 public key from a private key.
-// Used internally for test vector setup where only the private key is given.
-func derivePublicKey(priv [32]byte) ([32]byte, error) {
-	pub, err := curve25519.X25519(priv[:], curve25519.Basepoint)
-	if err != nil {
-		return [32]byte{}, err
-	}
-	var out [32]byte
-	copy(out[:], pub)
-	return out, nil
-}
 func dh(privKey, pubKey [32]byte) ([32]byte, error) {
 	out, err := curve25519.X25519(privKey[:], pubKey[:])
 	if err != nil {

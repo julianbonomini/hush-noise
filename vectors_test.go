@@ -7,6 +7,8 @@ import (
 	"net"
 	"os"
 	"testing"
+
+	"golang.org/x/crypto/curve25519"
 )
 
 // cacophonyFile is the shape of testdata/cacophony.json.
@@ -45,14 +47,15 @@ func keypairFromPrivHex(t *testing.T, privHex string) Keypair {
 	t.Helper()
 	priv := mustDecodeHex(t, privHex)
 
-	var kp Keypair
-	copy(kp.PrivateKey[:], priv)
-	pub, err := derivePublicKey(kp.PrivateKey)
+	var privArr [32]byte
+	copy(privArr[:], priv)
+	pub, err := curve25519.X25519(privArr[:], curve25519.Basepoint)
 	if err != nil {
 		t.Fatalf("derive public key: %v", err)
 	}
-	kp.PublicKey = pub
-	return kp
+	var pubArr [32]byte
+	copy(pubArr[:], pub)
+	return NewKeypair(privArr, pubArr)
 }
 
 // TestSpecVectors verifies the implementation against every vector in
@@ -114,12 +117,12 @@ func runCacophonyVector(t *testing.T, vec cacophonyVector) {
 			iCh <- result{err: err}
 			return
 		}
-		c1, c2, err := hs.writeMsg2(iConn, mustDecodeHex(t, vec.Messages[2].Payload))
+		fi, fr, err := hs.writeMsg2(iConn, mustDecodeHex(t, vec.Messages[2].Payload))
 		if err != nil {
 			iCh <- result{err: err}
 			return
 		}
-		iCh <- result{cs: [2]*cipherState{c1, c2}, hash: hs.ss.h}
+		iCh <- result{cs: [2]*cipherState{fi, fr}, hash: hs.ss.h}
 	}()
 
 	go func() {
@@ -132,12 +135,12 @@ func runCacophonyVector(t *testing.T, vec cacophonyVector) {
 			rCh <- result{err: err}
 			return
 		}
-		c1, c2, err := hs.readMsg2(rConn)
+		fi, fr, err := hs.readMsg2(rConn)
 		if err != nil {
 			rCh <- result{err: err}
 			return
 		}
-		rCh <- result{cs: [2]*cipherState{c1, c2}, hash: hs.ss.h}
+		rCh <- result{cs: [2]*cipherState{fi, fr}, hash: hs.ss.h}
 	}()
 
 	ir := <-iCh
@@ -158,16 +161,16 @@ func runCacophonyVector(t *testing.T, vec cacophonyVector) {
 		t.Errorf("responder handshake_hash\n got  %x\n want %x", rr.hash, wantHash)
 	}
 
-	// Post-handshake messages: initiator sends on c2, responder sends on c1.
+	// Post-handshake messages: initiator sends on fromInitiator (index 0), responder sends on fromResponder (index 1).
 	// msg[3]: initiator→responder, msg[4]: responder→initiator, msg[5]: initiator→responder
 	postMessages := []struct {
 		sender  *cipherState
 		payload string
 		ctext   string
 	}{
-		{ir.cs[1], vec.Messages[3].Payload, vec.Messages[3].Ciphertext},
-		{rr.cs[0], vec.Messages[4].Payload, vec.Messages[4].Ciphertext},
-		{ir.cs[1], vec.Messages[5].Payload, vec.Messages[5].Ciphertext},
+		{ir.cs[0], vec.Messages[3].Payload, vec.Messages[3].Ciphertext},
+		{rr.cs[1], vec.Messages[4].Payload, vec.Messages[4].Ciphertext},
+		{ir.cs[0], vec.Messages[5].Payload, vec.Messages[5].Ciphertext},
 	}
 
 	for i, m := range postMessages {

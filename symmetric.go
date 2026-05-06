@@ -78,13 +78,15 @@ func (ss *symmetricState) decryptAndHash(ciphertext []byte) ([]byte, error) {
 }
 
 // split returns two CipherStates for post-handshake transport.
+// fromInitiator carries traffic from the initiator to the responder;
+// fromResponder carries traffic from the responder to the initiator.
 // Per spec §5.2 Split.
-func (ss *symmetricState) split() (send, recv *cipherState) {
+func (ss *symmetricState) split() (fromInitiator, fromResponder *cipherState) {
 	k1, k2 := hkdf2(ss.ck[:], []byte{})
-	var sendKey, recvKey [32]byte
-	copy(sendKey[:], k1)
-	copy(recvKey[:], k2)
-	return newCipherState(sendKey), newCipherState(recvKey)
+	var k1key, k2key [32]byte
+	copy(k1key[:], k1)
+	copy(k2key[:], k2)
+	return newCipherState(k2key), newCipherState(k1key)
 }
 
 // blake2s256 returns the BLAKE2s-256 hash of data.

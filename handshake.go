@@ -13,16 +13,14 @@ const protocolName = "Noise_XX_25519_ChaChaPoly_BLAKE2s"
 //	msg1: <- e, ee, s, es
 //	msg2: -> s, se
 //
-// Both peers use the same msgIndex counter, incremented after each
-// read or write. The initiator writes msg0, reads msg1, writes msg2.
+// The initiator writes msg0, reads msg1, writes msg2.
 // The responder reads msg0, writes msg1, reads msg2.
 type handshakeState struct {
-	ss       *symmetricState
-	s        Keypair  // local static keypair
-	e        Keypair  // local ephemeral keypair (generated per handshake)
-	rs       [32]byte // remote static public key
-	re       [32]byte // remote ephemeral public key
-	msgIndex int      // global message counter (0, 1, 2)
+	ss *symmetricState
+	s  Keypair  // local static keypair
+	e  Keypair  // local ephemeral keypair (generated per handshake)
+	rs [32]byte // remote static public key
+	re [32]byte // remote ephemeral public key
 }
 
 // newHandshakeState creates a handshakeState with a freshly generated ephemeral
@@ -51,7 +49,6 @@ func (hs *handshakeState) writeMsg0(w io.Writer, payload []byte) error {
 	if err := writeFrame(w, msg); err != nil {
 		return err
 	}
-	hs.msgIndex++
 	return nil
 }
 
@@ -69,7 +66,6 @@ func (hs *handshakeState) readMsg0(r io.Reader) error {
 	if _, err := hs.ss.decryptAndHash(msg[32:]); err != nil {
 		return fmt.Errorf("noise: msg0 payload: %w", err)
 	}
-	hs.msgIndex++
 	return nil
 }
 
@@ -77,7 +73,7 @@ func (hs *handshakeState) readMsg0(r io.Reader) error {
 func (hs *handshakeState) writeMsg1(w io.Writer, payload []byte) error {
 	hs.ss.mixHash(hs.e.PublicKey[:])
 
-	eeDH, err := dh(hs.e.PrivateKey, hs.re)
+	eeDH, err := dh(hs.e.privateKey, hs.re)
 	if err != nil {
 		return fmt.Errorf("noise: ee DH: %w", err)
 	}
@@ -86,7 +82,7 @@ func (hs *handshakeState) writeMsg1(w io.Writer, payload []byte) error {
 	encS := hs.ss.encryptAndHash(hs.s.PublicKey[:])
 
 	// es: responder's static × initiator's ephemeral
-	esDH, err := dh(hs.s.PrivateKey, hs.re)
+	esDH, err := dh(hs.s.privateKey, hs.re)
 	if err != nil {
 		return fmt.Errorf("noise: es DH: %w", err)
 	}
@@ -100,7 +96,6 @@ func (hs *handshakeState) writeMsg1(w io.Writer, payload []byte) error {
 	if err := writeFrame(w, msg); err != nil {
 		return err
 	}
-	hs.msgIndex++
 	return nil
 }
 
@@ -119,7 +114,7 @@ func (hs *handshakeState) readMsg1(r io.Reader) error {
 	msg = msg[32:]
 
 	// ee: initiator's ephemeral × responder's ephemeral
-	eeDH, err := dh(hs.e.PrivateKey, hs.re)
+	eeDH, err := dh(hs.e.privateKey, hs.re)
 	if err != nil {
 		return fmt.Errorf("noise: ee DH: %w", err)
 	}
@@ -138,7 +133,7 @@ func (hs *handshakeState) readMsg1(r io.Reader) error {
 	copy(hs.rs[:], rsBytes)
 
 	// es: initiator's ephemeral × responder's static
-	esDH, err := dh(hs.e.PrivateKey, hs.rs)
+	esDH, err := dh(hs.e.privateKey, hs.rs)
 	if err != nil {
 		return fmt.Errorf("noise: es DH: %w", err)
 	}
@@ -147,17 +142,16 @@ func (hs *handshakeState) readMsg1(r io.Reader) error {
 	if _, err := hs.ss.decryptAndHash(msg); err != nil {
 		return err
 	}
-	hs.msgIndex++
 	return nil
 }
 
 // writeMsg2 sends: -> s, se [payload]
 // Returns the two transport CipherStates on success.
-func (hs *handshakeState) writeMsg2(w io.Writer, payload []byte) (c1, c2 *cipherState, err error) {
+func (hs *handshakeState) writeMsg2(w io.Writer, payload []byte) (fromInitiator, fromResponder *cipherState, err error) {
 	encS := hs.ss.encryptAndHash(hs.s.PublicKey[:])
 
 	// se: initiator's static × responder's ephemeral
-	seDH, err := dh(hs.s.PrivateKey, hs.re)
+	seDH, err := dh(hs.s.privateKey, hs.re)
 	if err != nil {
 		return nil, nil, fmt.Errorf("noise: se DH: %w", err)
 	}
@@ -169,14 +163,13 @@ func (hs *handshakeState) writeMsg2(w io.Writer, payload []byte) (c1, c2 *cipher
 	if err := writeFrame(w, msg); err != nil {
 		return nil, nil, err
 	}
-	hs.msgIndex++
-	c1, c2 = hs.ss.split()
-	return c1, c2, nil
+	fromInitiator, fromResponder = hs.ss.split()
+	return fromInitiator, fromResponder, nil
 }
 
 // readMsg2 receives: -> s, se [payload]
 // Returns the two transport CipherStates on success.
-func (hs *handshakeState) readMsg2(r io.Reader) (c1, c2 *cipherState, err error) {
+func (hs *handshakeState) readMsg2(r io.Reader) (fromInitiator, fromResponder *cipherState, err error) {
 	msg, err := readFrame(r)
 	if err != nil {
 		return nil, nil, fmt.Errorf("noise: read msg2: %w", err)
@@ -194,7 +187,7 @@ func (hs *handshakeState) readMsg2(r io.Reader) (c1, c2 *cipherState, err error)
 	copy(hs.rs[:], rsBytes)
 
 	// se: responder's ephemeral × initiator's static (= DH(e_R, s_I))
-	seDH, err := dh(hs.e.PrivateKey, hs.rs)
+	seDH, err := dh(hs.e.privateKey, hs.rs)
 	if err != nil {
 		return nil, nil, fmt.Errorf("noise: se DH: %w", err)
 	}
@@ -204,7 +197,6 @@ func (hs *handshakeState) readMsg2(r io.Reader) (c1, c2 *cipherState, err error)
 		return nil, nil, err
 	}
 
-	hs.msgIndex++
-	c1, c2 = hs.ss.split()
-	return c1, c2, nil
+	fromInitiator, fromResponder = hs.ss.split()
+	return fromInitiator, fromResponder, nil
 }

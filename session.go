@@ -2,7 +2,6 @@ package noise
 
 import (
 	"context"
-	"encoding/binary"
 	"fmt"
 	"io"
 	"sync"
@@ -127,13 +126,11 @@ func doHandshake(ctx context.Context, conn io.ReadWriter, keypair Keypair, initi
 			return nil, err
 		}
 		// -> s, se  (produces cipher states)
-		// split() returns (c1, c2). Per the Noise spec and cacophony test vectors,
-		// the initiator sends on c2 and receives on c1.
 		var writeErr error
 		if err := runStep(func() error {
-			var c1, c2 *cipherState
-			c1, c2, writeErr = hs.writeMsg2(conn, []byte{})
-			sendCS, recvCS = c2, c1 // initiator sends on c2
+			var fi, fr *cipherState
+			fi, fr, writeErr = hs.writeMsg2(conn, []byte{})
+			sendCS, recvCS = fi, fr
 			return writeErr
 		}); err != nil {
 			return nil, err
@@ -148,12 +145,11 @@ func doHandshake(ctx context.Context, conn io.ReadWriter, keypair Keypair, initi
 			return nil, err
 		}
 		// <- s, se  (produces cipher states)
-		// split() returns (c1, c2). The responder sends on c1 and receives on c2.
 		var readErr error
 		if err := runStep(func() error {
-			var c1, c2 *cipherState
-			c1, c2, readErr = hs.readMsg2(conn)
-			sendCS, recvCS = c1, c2 // responder sends on c1
+			var fi, fr *cipherState
+			fi, fr, readErr = hs.readMsg2(conn)
+			sendCS, recvCS = fr, fi
 			return readErr
 		}); err != nil {
 			return nil, err
@@ -173,38 +169,3 @@ func doHandshake(ctx context.Context, conn io.ReadWriter, keypair Keypair, initi
 		remotePubKey: hs.rs,
 	}, nil
 }
-
-// writeFrame writes data to w with a 2-byte big-endian length prefix.
-func writeFrame(w io.Writer, data []byte) error {
-	if len(data) > maxMessageSize {
-		return fmt.Errorf("noise: frame too large: %d bytes", len(data))
-	}
-	header := make([]byte, 2)
-	binary.BigEndian.PutUint16(header, uint16(len(data)))
-	if _, err := w.Write(header); err != nil {
-		return fmt.Errorf("noise: write frame header: %w", err)
-	}
-	if _, err := w.Write(data); err != nil {
-		return fmt.Errorf("noise: write frame body: %w", err)
-	}
-	return nil
-}
-
-// readFrame reads a 2-byte big-endian length prefix then the body from r.
-func readFrame(r io.Reader) ([]byte, error) {
-	header := make([]byte, 2)
-	if _, err := io.ReadFull(r, header); err != nil {
-		return nil, fmt.Errorf("noise: read frame header: %w", err)
-	}
-	size := binary.BigEndian.Uint16(header)
-	body := make([]byte, size)
-	if _, err := io.ReadFull(r, body); err != nil {
-		return nil, fmt.Errorf("noise: read frame body: %w", err)
-	}
-	return body, nil
-}
-
-// nopCloser wraps an io.ReadWriter that doesn't implement io.Closer.
-type nopCloser struct{ io.ReadWriter }
-
-func (nopCloser) Close() error { return nil }
