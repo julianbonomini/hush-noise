@@ -1,0 +1,3 @@
+# Implement the Noise state machine from scratch
+
+We implement the Noise handshake state machine directly against the spec rather than wrapping an existing Go library (e.g. `flynn/noise`, `Yawning/nyquist`). The raw cryptographic primitives (X25519, ChaCha20-Poly1305, BLAKE2s) come from `golang.org/x/crypto` — these are audited and correct and there is no reason to reimplement them. But the Noise state machine itself (`CipherState`, `SymmetricState`, `HandshakeState`) is written by hand. The spec is 50 pages and clear. The understanding gained from implementing it is the point — this is a learning artefact as much as a library.
