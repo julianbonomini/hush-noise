@@ -1,4 +1,4 @@
-module github.com/julianbonomini/hush-noise
+module github.com/julianbonomini/hush-noise/go
 
 go 1.26.2
 

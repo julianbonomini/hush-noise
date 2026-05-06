@@ -6,7 +6,7 @@ import (
 	"net"
 	"testing"
 
-	"github.com/julianbonomini/hush-noise"
+	noise "github.com/julianbonomini/hush-noise/go"
 )
 
 // faultReader wraps an io.Reader and returns io.ErrUnexpectedEOF after

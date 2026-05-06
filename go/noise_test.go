@@ -8,7 +8,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/julianbonomini/hush-noise"
+	noise "github.com/julianbonomini/hush-noise/go"
 )
 
 // generateKeypair is a test helper — keypair generation is the caller's
