@@ -6,11 +6,23 @@ description = "Noise Protocol Framework — Noise_XX_25519_ChaChaPoly_BLAKE2s"
 license = "MIT"
 publish = false  # not published until open-sourced
 
+[lib]
+crate-type = ["cdylib", "lib"]
+
+[[bin]]
+name = "uniffi-bindgen"
+path = "src/bin/uniffi_bindgen.rs"
+
 [dependencies]
 x25519-dalek = { version = "2", features = ["static_secrets"] }
 chacha20poly1305 = "0.10"
 blake2 = "0.10"
 rand = "0.8"
+uniffi = { version = "0.28", features = ["build", "cli"] }
+thiserror = "1"
+
+[build-dependencies]
+uniffi = { version = "0.28", features = ["build"] }
 
 [dev-dependencies]
 serde = { version = "1", features = ["derive"] }

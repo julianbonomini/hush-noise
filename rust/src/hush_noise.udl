@@ -1,0 +1,86 @@
+// hush_noise.udl — UniFFI interface definition for hush-noise
+//
+// Exposes the full public API of the Noise_XX_25519_ChaChaPoly_BLAKE2s
+// implementation to Swift and Kotlin via a cdylib.
+//
+// Transport abstraction: the library is transport-agnostic. Callers supply a
+// NoiseTransport object that bridges the Read+Write requirement across the
+// language boundary.
+
+namespace hush_noise {
+    /// Generate a fresh X25519 keypair from a secure random source.
+    KeypairRecord generate_keypair();
+
+    /// Restore a keypair from raw private and public key bytes.
+    KeypairRecord new_keypair([ByRef] sequence<u8> private_key, [ByRef] sequence<u8> public_key);
+
+    /// Perform the XX handshake as the Initiator.
+    /// Blocks until the three-message handshake completes.
+    /// Returns a fully-negotiated Session on success.
+    [Throws=NoiseError]
+    Session dial(NoiseTransport transport, KeypairRecord keypair);
+
+    /// Perform the XX handshake as the Responder.
+    /// Blocks until the three-message handshake completes.
+    /// Returns a fully-negotiated Session on success.
+    [Throws=NoiseError]
+    Session accept(NoiseTransport transport, KeypairRecord keypair);
+};
+
+/// A static X25519 keypair. public_key is safe to share freely.
+/// private_key is sensitive key material — handle with care.
+dictionary KeypairRecord {
+    sequence<u8> public_key;
+    sequence<u8> private_key;
+};
+
+/// NoiseTransport is a callback interface that the caller implements.
+/// It bridges the Read+Write+Send requirement across the language boundary.
+///
+/// read() must block until exactly `count` bytes are available and return them.
+/// write() must write all bytes and return only after the write is complete.
+/// Both methods may throw NoiseError on I/O failure.
+[Trait, WithForeign]
+interface NoiseTransport {
+    [Throws=NoiseError]
+    sequence<u8> read(u64 count);
+
+    [Throws=NoiseError]
+    void write(sequence<u8> data);
+};
+
+/// A fully negotiated, bidirectional encrypted Noise channel.
+/// send and receive are safe to call concurrently.
+/// Sessions are not resumable after close.
+interface Session {
+    /// Encrypt payload and write it to the transport.
+    /// Returns NoiseError if the payload exceeds 65535 bytes, the session is
+    /// closed, or the transport fails.
+    [Throws=NoiseError]
+    void send([ByRef] sequence<u8> payload);
+
+    /// Read one message from the transport, decrypt it, and return the plaintext.
+    [Throws=NoiseError]
+    sequence<u8> receive();
+
+    /// Return the authenticated static public key of the remote peer.
+    sequence<u8> remote_public_key();
+
+    /// Close the underlying transport.
+    /// Subsequent send/receive calls return NoiseError.
+    [Throws=NoiseError]
+    void close();
+};
+
+/// Errors returned by the hush-noise API.
+[Error]
+interface NoiseError {
+    /// A transport-level I/O failure occurred.
+    Transport(string message);
+    /// Handshake failed — authentication or decryption error.
+    Handshake(string message);
+    /// The session has been closed.
+    Closed();
+    /// The message payload exceeded the 65535-byte limit.
+    PayloadTooLarge();
+};

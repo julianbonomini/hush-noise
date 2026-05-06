@@ -4,13 +4,21 @@
 /// Implements `Noise_XX_25519_ChaChaPoly_BLAKE2s` from the Noise Protocol spec.
 /// Verified against the official cacophony test vectors (shared with the Go implementation).
 ///
-/// Primitives: RustCrypto (`x25519-dalek`, `chacha20poly1305`, `blake2`).
+/// The `ffi` module exposes the public API to Swift and Kotlin via UniFFI.
 pub(crate) mod cipher;
+pub mod ffi;
 pub(crate) mod framing;
 pub(crate) mod handshake;
-pub(crate) mod keypair;
+pub mod keypair;
 pub mod session;
 pub(crate) mod symmetric;
+
+// Re-export all FFI symbols at the crate root so the UniFFI-generated
+// scaffolding (which calls crate::generate_keypair, crate::dial, etc.) can
+// find them without qualification.
+pub use ffi::*;
+
+uniffi::include_scaffolding!("hush_noise");
 
 #[cfg(test)]
 mod tests {

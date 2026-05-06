@@ -30,3 +30,29 @@ jobs:
           toolchain: stable
           override: true
       - run: cargo test
+
+  generate-bindings:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: rust
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions-rs/toolchain@v1
+        with:
+          toolchain: stable
+          override: true
+      - name: Build cdylib
+        run: cargo build
+      - name: Generate Swift bindings
+        run: |
+          cargo run --bin uniffi-bindgen -- generate \
+            --library target/debug/libhush_noise.so \
+            --language swift \
+            --out-dir /tmp/swift-bindings
+      - name: Generate Kotlin bindings
+        run: |
+          cargo run --bin uniffi-bindgen -- generate \
+            --library target/debug/libhush_noise.so \
+            --language kotlin \
+            --out-dir /tmp/kotlin-bindings
