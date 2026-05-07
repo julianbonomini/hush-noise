@@ -1,15 +1,20 @@
-use std::io::{self, Read, Write};
+use std::io::{self, ErrorKind, Read, Write};
 use std::sync::{Arc, Mutex};
 
 use crate::{
     cipher::{CipherState, MAX_MESSAGE_SIZE},
-    framing::read_frame,
     handshake::HandshakeState,
     keypair::Keypair,
 };
 
 /// Session is a fully negotiated, bidirectional encrypted channel between two peers.
 /// `send` and `receive` are safe to call concurrently from different threads.
+///
+/// The conn mutex is held for individual read() or write_all() calls only — it is
+/// released and re-acquired between reads. This means a concurrent send() can always
+/// acquire the conn lock between the reads that make up a frame, preventing the
+/// deadlock that would occur if the lock were held for the entire blocking read_frame.
+///
 /// Sessions are not resumable — if the transport dies, establish a new Session
 /// via `dial` or `accept`.
 pub struct Session<T: Read + Write + Send> {
@@ -31,6 +36,31 @@ impl<T: Read + Write + Send> Session<T> {
         }
     }
 
+    /// Read exactly `n` bytes, acquiring and releasing the conn mutex per `read()` call.
+    /// Retries on WouldBlock/Interrupted, sleeping briefly to yield to other threads.
+    /// This is the key to concurrent send/receive: send() can acquire conn between reads.
+    fn read_exact_interruptible(&self, n: usize) -> io::Result<Vec<u8>> {
+        let mut buf = vec![0u8; n];
+        let mut filled = 0;
+        while filled < n {
+            match self.conn.lock().unwrap().read(&mut buf[filled..]) {
+                Ok(0) => {
+                    return Err(io::Error::new(
+                        ErrorKind::UnexpectedEof,
+                        "connection closed",
+                    ))
+                }
+                Ok(k) => filled += k,
+                Err(e) if e.kind() == ErrorKind::WouldBlock || e.kind() == ErrorKind::Interrupted => {
+                    // Yield and retry — this releases conn between retries.
+                    std::thread::sleep(std::time::Duration::from_micros(50));
+                }
+                Err(e) => return Err(e),
+            }
+        }
+        Ok(buf)
+    }
+
     /// Encrypts payload and writes it to the transport with a 2-byte big-endian
     /// length prefix. Returns an Expected Failure error if payload exceeds 65535
     /// bytes or the transport fails.
@@ -46,30 +76,31 @@ impl<T: Read + Write + Send> Session<T> {
             return Err("noise: session is closed".to_string());
         }
         let ciphertext = self.send_cs.lock().unwrap().encrypt(&[], payload);
+        let mut framed = Vec::with_capacity(2 + ciphertext.len());
+        let len = ciphertext.len() as u16;
+        framed.extend_from_slice(&len.to_be_bytes());
+        framed.extend_from_slice(&ciphertext);
         self.conn
             .lock()
             .unwrap()
-            .write_all(&{
-                // Build the framed message manually to avoid double-locking conn.
-                let mut buf = Vec::with_capacity(2 + ciphertext.len());
-                let len = ciphertext.len() as u16;
-                buf.extend_from_slice(&len.to_be_bytes());
-                buf.extend_from_slice(&ciphertext);
-                buf
-            })
+            .write_all(&framed)
             .map_err(|e| format!("noise: send: {}", e))
     }
 
-    /// Reads one message from the transport, decrypts it, and returns the plaintext.
-    /// Returns an Expected Failure error on I/O or decryption failure.
+    /// Reads one framed message from the transport, decrypts it, and returns the plaintext.
+    /// The conn mutex is released between individual read() calls so concurrent send()
+    /// operations can interleave.
     pub fn receive(&self) -> Result<Vec<u8>, String> {
         if *self.closed.lock().unwrap() {
             return Err("noise: session is closed".to_string());
         }
-        let ciphertext = {
-            let mut conn = self.conn.lock().unwrap();
-            read_frame(&mut *conn).map_err(|e| format!("noise: receive frame: {}", e))?
-        };
+        let header = self
+            .read_exact_interruptible(2)
+            .map_err(|e| format!("noise: receive header: {}", e))?;
+        let size = u16::from_be_bytes([header[0], header[1]]) as usize;
+        let ciphertext = self
+            .read_exact_interruptible(size)
+            .map_err(|e| format!("noise: receive body: {}", e))?;
         self.recv_cs.lock().unwrap().decrypt(&[], &ciphertext)
     }
 
@@ -99,36 +130,65 @@ pub fn accept<T: Read + Write + Send>(conn: T, keypair: Keypair) -> Result<Sessi
     do_handshake(conn, keypair, false)
 }
 
+/// A Read+Write adapter that retries on WouldBlock/Interrupted, sleeping briefly.
+/// Used during the handshake phase so transports that return WouldBlock when
+/// data is not yet available work correctly with read_exact.
+struct RetryConn<T: Read + Write>(T);
+
+impl<T: Read + Write> Read for RetryConn<T> {
+    fn read(&mut self, buf: &mut [u8]) -> io::Result<usize> {
+        loop {
+            match self.0.read(buf) {
+                Err(e) if e.kind() == ErrorKind::WouldBlock || e.kind() == ErrorKind::Interrupted => {
+                    std::thread::sleep(std::time::Duration::from_micros(50));
+                }
+                other => return other,
+            }
+        }
+    }
+}
+
+impl<T: Read + Write> Write for RetryConn<T> {
+    fn write(&mut self, buf: &[u8]) -> io::Result<usize> {
+        self.0.write(buf)
+    }
+    fn flush(&mut self) -> io::Result<()> {
+        self.0.flush()
+    }
+}
+
 fn do_handshake<T: Read + Write + Send>(
-    mut conn: T,
+    conn: T,
     keypair: Keypair,
     initiator: bool,
 ) -> Result<Session<T>, String> {
     let mut hs = HandshakeState::new(keypair);
+    // Wrap conn in RetryConn so handshake reads retry on WouldBlock.
+    let mut rc = RetryConn(conn);
 
     let (send_cs, recv_cs, remote_pub_key) = if initiator {
         // -> e
-        hs.write_msg0(&mut conn, &[])
+        hs.write_msg0(&mut rc, &[])
             .map_err(|e| format!("noise: write_msg0: {}", e))?;
         // <- e, ee, s, es
-        hs.read_msg1(&mut conn)?;
+        hs.read_msg1(&mut rc)?;
         // -> s, se; rs was set during read_msg1 (responder's static)
-        let (fi, fr, _hash, rs) = hs.write_msg2(&mut conn, &[])?;
+        let (fi, fr, _hash, rs) = hs.write_msg2(&mut rc, &[])?;
         // Initiator sends on fromInitiator, receives on fromResponder
         (fi, fr, rs)
     } else {
         // <- e
-        hs.read_msg0(&mut conn)?;
+        hs.read_msg0(&mut rc)?;
         // -> e, ee, s, es
-        hs.write_msg1(&mut conn, &[])
+        hs.write_msg1(&mut rc, &[])
             .map_err(|e| format!("noise: write_msg1: {}", e))?;
         // <- s, se; rs is set during read_msg2 (initiator's static)
-        let (fi, fr, _hash, rs) = hs.read_msg2(&mut conn)?;
+        let (fi, fr, _hash, rs) = hs.read_msg2(&mut rc)?;
         // Responder sends on fromResponder, receives on fromInitiator
         (fr, fi, rs)
     };
 
-    Ok(Session::new(conn, send_cs, recv_cs, remote_pub_key))
+    Ok(Session::new(rc.0, send_cs, recv_cs, remote_pub_key))
 }
 
 #[cfg(test)]
@@ -137,7 +197,10 @@ mod tests {
     use crate::keypair::generate_keypair;
 
     /// In-memory bidirectional pipe for testing.
-    /// Uses two shared Vec<u8> buffers — one per direction.
+    ///
+    /// read() returns WouldBlock immediately when empty (instead of spinning),
+    /// so that Session::read_exact_interruptible() releases the conn mutex
+    /// between retries and allows concurrent send() to proceed.
     use std::sync::{Arc, Mutex};
 
     struct MemPipe {
@@ -147,17 +210,15 @@ mod tests {
 
     impl Read for MemPipe {
         fn read(&mut self, buf: &mut [u8]) -> io::Result<usize> {
-            loop {
-                let mut rb = self.read_buf.lock().unwrap();
-                if !rb.is_empty() {
-                    let n = buf.len().min(rb.len());
-                    buf[..n].copy_from_slice(&rb[..n]);
-                    rb.drain(..n);
-                    return Ok(n);
-                }
-                drop(rb);
-                std::thread::sleep(std::time::Duration::from_micros(100));
+            let mut rb = self.read_buf.lock().unwrap();
+            if rb.is_empty() {
+                // Return WouldBlock so Session releases conn mutex before retrying.
+                return Err(io::Error::new(ErrorKind::WouldBlock, "buffer empty"));
             }
+            let n = buf.len().min(rb.len());
+            buf[..n].copy_from_slice(&rb[..n]);
+            rb.drain(..n);
+            Ok(n)
         }
     }
 
@@ -280,5 +341,28 @@ mod tests {
         i_session.close().expect("close failed");
         let result = i_session.send(b"after close");
         assert!(result.is_err(), "send after close should fail");
+    }
+
+    /// Concurrent send and receive do not deadlock.
+    #[test]
+    fn concurrent_send_and_receive_do_not_deadlock() {
+        let i_kp = generate_keypair();
+        let r_kp = generate_keypair();
+        let (i_conn, r_conn) = mem_pipe_pair();
+
+        let r_kp2 = Keypair::new(r_kp.private(), r_kp.public_key);
+        let r_handle = std::thread::spawn(move || accept(r_conn, r_kp2));
+        let i_session = Arc::new(dial(i_conn, i_kp).expect("dial failed"));
+        let r_session = Arc::new(r_handle.join().unwrap().expect("accept failed"));
+
+        // Spawn a receive thread on r_session before sending from i_session.
+        let r_sess_clone = r_session.clone();
+        let recv_handle = std::thread::spawn(move || r_sess_clone.receive());
+
+        // Send from i_session — must not deadlock even though r_session is blocking on receive.
+        i_session.send(b"concurrent").expect("send must not deadlock");
+
+        let msg = recv_handle.join().unwrap().expect("receive failed");
+        assert_eq!(msg, b"concurrent");
     }
 }
