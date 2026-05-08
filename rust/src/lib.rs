@@ -1,4 +1,4 @@
-/// hush-noise — Noise_XX_25519_ChaChaPoly_BLAKE2s
+/// hush-noise — Noise_XX_25519_ChaChaPoly_BLAKE2s and Noise_NK_25519_ChaChaPoly_BLAKE2s
 ///
 /// Implements the Noise Protocol Framework using RustCrypto primitives.
 /// Verified against the official cacophony test vectors.
@@ -9,8 +9,12 @@ pub mod ffi;
 pub(crate) mod framing;
 pub(crate) mod handshake;
 pub mod keypair;
-pub mod session;
+pub(crate) mod session; // SessionInner + RetryConn — shared internals
+pub mod session_xx;
 pub(crate) mod symmetric;
+
+#[cfg(test)]
+pub(crate) mod test_helpers;
 
 // Re-export all FFI symbols at the crate root so the UniFFI-generated
 // scaffolding (which calls crate::generate_keypair, crate::dial, etc.) can

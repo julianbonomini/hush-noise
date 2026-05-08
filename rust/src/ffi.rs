@@ -1,15 +1,16 @@
 /// ffi.rs — UniFFI FFI wrapper layer for hush-noise.
 ///
-/// Bridges the transport-generic `session::Session<T>` to UniFFI's object
-/// model, which requires `Arc`-wrapped types. The `NoiseTransport` callback
-/// interface is wrapped in a `TransportWrapper` that implements `std::io::Read`
-/// and `std::io::Write` so it can be passed directly into `dial`/`accept`.
+/// Bridges the transport-generic session types to UniFFI's object model,
+/// which requires `Arc`-wrapped types. The `NoiseTransport` callback
+/// interface is wrapped in a `TransportWrapper` that implements
+/// `std::io::Read` and `std::io::Write` so it can be passed into
+/// `session_xx::dial`/`accept`.
 use std::io::{self, Read, Write};
 use std::sync::Arc;
 
 use crate::{
     keypair::{generate_keypair as core_generate_keypair, Keypair},
-    session::{accept as core_accept, dial as core_dial, Session as CoreSession},
+    session_xx::{accept as core_accept_xx, dial as core_dial_xx, Session as CoreSessionXx},
 };
 
 // ── Error ────────────────────────────────────────────────────────────────────
@@ -116,11 +117,11 @@ impl Write for TransportWrapper {
 
 // ── Session ───────────────────────────────────────────────────────────────────
 
-/// FFI-visible session object. Maps to UDL `interface Session`.
-/// Wraps the transport-generic `CoreSession` behind `Arc<Mutex<...>>` so
-/// UniFFI can hand out reference-counted handles to callers.
+/// FFI-visible XX session object. Maps to UDL `interface Session`.
+/// Wraps `session_xx::Session` behind `Arc` so UniFFI can hand out
+/// reference-counted handles to callers.
 pub struct Session {
-    inner: Arc<CoreSession<TransportWrapper>>,
+    inner: Arc<CoreSessionXx<TransportWrapper>>,
 }
 
 impl Session {
@@ -150,7 +151,7 @@ pub fn dial(
     keypair: KeypairRecord,
 ) -> Result<Arc<Session>, NoiseError> {
     let wrapper = TransportWrapper { inner: transport };
-    let core_session = core_dial(wrapper, keypair.to_keypair()).map_err(NoiseError::from)?;
+    let core_session = core_dial_xx(wrapper, keypair.to_keypair()).map_err(NoiseError::from)?;
     Ok(Arc::new(Session {
         inner: Arc::new(core_session),
     }))
@@ -161,7 +162,7 @@ pub fn accept(
     keypair: KeypairRecord,
 ) -> Result<Arc<Session>, NoiseError> {
     let wrapper = TransportWrapper { inner: transport };
-    let core_session = core_accept(wrapper, keypair.to_keypair()).map_err(NoiseError::from)?;
+    let core_session = core_accept_xx(wrapper, keypair.to_keypair()).map_err(NoiseError::from)?;
     Ok(Arc::new(Session {
         inner: Arc::new(core_session),
     }))
