@@ -1,5 +1,4 @@
 use std::io::{self, Read, Write};
-use std::sync::Arc;
 
 use crate::{
     keypair::Keypair,
@@ -107,6 +106,7 @@ mod tests {
     use super::*;
     use crate::keypair::generate_keypair;
     use crate::test_helpers::mem_pipe_pair;
+    use std::sync::Arc;
 
     #[test]
     fn dial_accept_complete() {

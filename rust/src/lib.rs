@@ -10,6 +10,7 @@ pub(crate) mod framing;
 pub(crate) mod handshake;
 pub mod keypair;
 pub(crate) mod session; // SessionInner + RetryConn — shared internals
+pub mod session_nk;
 pub mod session_xx;
 pub(crate) mod symmetric;
 

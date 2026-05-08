@@ -8,6 +8,7 @@ use crate::{
 };
 
 const PROTOCOL_NAME: &str = "Noise_XX_25519_ChaChaPoly_BLAKE2s";
+const PROTOCOL_NAME_NK: &str = "Noise_NK_25519_ChaChaPoly_BLAKE2s";
 
 /// HandshakeState implements the Noise XX handshake pattern:
 ///
@@ -181,6 +182,122 @@ impl HandshakeState {
     }
 }
 
+// ── HandshakeStateNk ──────────────────────────────────────────────────────────
+
+/// HandshakeState for the Noise NK pattern:
+///
+///   pre: <- s         (initiator knows responder's static key)
+///   msg0: -> e, es
+///   msg1: <- e, ee
+///
+/// The Initiator must supply the Responder's static public key (`rs`) before
+/// calling `do_initiator`. The Responder passes `None`.
+pub(crate) struct HandshakeStateNk {
+    ss: SymmetricState,
+    s: Keypair,   // local static keypair
+    e: Keypair,   // local ephemeral keypair
+    rs: [u8; 32], // remote static public key (initiator only)
+    re: [u8; 32], // remote ephemeral public key
+}
+
+impl HandshakeStateNk {
+    /// Production constructor.
+    /// `remote_static` must be `Some(key)` for the Initiator, `None` for the Responder.
+    pub(crate) fn new(s: Keypair, remote_static: Option<[u8; 32]>) -> Self {
+        let e = generate_keypair();
+        Self::new_fixed(s, e, remote_static, &[])
+    }
+
+    /// Deterministic constructor for spec vector tests.
+    pub(crate) fn new_fixed(
+        s: Keypair,
+        e: Keypair,
+        remote_static: Option<[u8; 32]>,
+        prologue: &[u8],
+    ) -> Self {
+        let mut ss = SymmetricState::new(PROTOCOL_NAME_NK);
+        ss.mix_hash(prologue);
+        // pre-message: <- s
+        // Initiator knows the responder's static key; responder knows its own.
+        let pre_s = remote_static.unwrap_or(s.public_key);
+        ss.mix_hash(&pre_s);
+        let rs = remote_static.unwrap_or([0u8; 32]);
+        Self {
+            ss,
+            s,
+            e,
+            rs,
+            re: [0u8; 32],
+        }
+    }
+
+    /// Runs the full NK handshake as the Initiator.
+    ///
+    /// msg0: -> e, es
+    /// msg1: <- e, ee
+    ///
+    /// Returns (fromInitiator, fromResponder) on success.
+    pub(crate) fn do_initiator<T: Read + Write>(
+        mut self,
+        conn: &mut T,
+    ) -> Result<(CipherState, CipherState), String> {
+        // msg0: -> e, es
+        self.ss.mix_hash(&self.e.public_key);
+        let es_dh = dh(self.e.private(), self.rs);
+        self.ss.mix_key(&es_dh);
+        let enc_payload = self.ss.encrypt_and_hash(&[]);
+        let mut msg0 = self.e.public_key.to_vec();
+        msg0.extend_from_slice(&enc_payload);
+        write_frame(conn, &msg0).map_err(|e| format!("noise: nk write msg0: {}", e))?;
+
+        // msg1: <- e, ee
+        let msg1 = read_frame(conn).map_err(|e| format!("noise: nk read msg1: {}", e))?;
+        if msg1.len() < 32 {
+            return Err(format!("noise: nk msg1 too short: {} bytes", msg1.len()));
+        }
+        self.re.copy_from_slice(&msg1[..32]);
+        self.ss.mix_hash(&self.re);
+        let ee_dh = dh(self.e.private(), self.re);
+        self.ss.mix_key(&ee_dh);
+        self.ss.decrypt_and_hash(&msg1[32..])?;
+
+        Ok(self.ss.split())
+    }
+
+    /// Runs the full NK handshake as the Responder.
+    ///
+    /// msg0: <- e, es
+    /// msg1: -> e, ee
+    ///
+    /// Returns (fromInitiator, fromResponder) on success.
+    pub(crate) fn do_responder<T: Read + Write>(
+        mut self,
+        conn: &mut T,
+    ) -> Result<(CipherState, CipherState), String> {
+        // msg0: <- e, es
+        let msg0 = read_frame(conn).map_err(|e| format!("noise: nk read msg0: {}", e))?;
+        if msg0.len() < 32 {
+            return Err(format!("noise: nk msg0 too short: {} bytes", msg0.len()));
+        }
+        self.re.copy_from_slice(&msg0[..32]);
+        self.ss.mix_hash(&self.re);
+        let es_dh = dh(self.s.private(), self.re);
+        self.ss.mix_key(&es_dh);
+        self.ss.decrypt_and_hash(&msg0[32..])?;
+
+        // msg1: -> e, ee
+        self.ss.mix_hash(&self.e.public_key);
+        let ee_dh = dh(self.e.private(), self.re);
+        self.ss.mix_key(&ee_dh);
+        let enc_payload = self.ss.encrypt_and_hash(&[]);
+        let mut msg1 = self.e.public_key.to_vec();
+        msg1.extend_from_slice(&enc_payload);
+        write_frame(conn, &msg1).map_err(|e| format!("noise: nk write msg1: {}", e))?;
+
+        Ok(self.ss.split())
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -246,5 +363,50 @@ mod tests {
         let ct2 = r_fr.encrypt(&[], b"world");
         let pt2 = i_fr.decrypt(&[], &ct2).expect("decrypt failed");
         assert_eq!(pt2, b"world");
+    }
+
+    /// NK handshake completes and the two sides can encrypt/decrypt to each other.
+    /// Uses fixed deterministic keypairs and the MemPipe test helper.
+    #[test]
+    fn nk_handshake_completes_and_cipher_states_work() {
+        use crate::session::RetryConn;
+        use crate::test_helpers::mem_pipe_pair;
+
+        let resp_s = generate_keypair();
+        let resp_e = generate_keypair();
+        let init_s = generate_keypair();
+        let init_e = generate_keypair();
+        let r_pub = resp_s.public_key;
+
+        let hs_i = HandshakeStateNk::new_fixed(init_s, init_e, Some(r_pub), &[]);
+        let hs_r = HandshakeStateNk::new_fixed(
+            Keypair::new(resp_s.private(), resp_s.public_key),
+            resp_e,
+            None,
+            &[],
+        );
+
+        let (i_conn, r_conn) = mem_pipe_pair();
+
+        // Wrap in RetryConn so read_frame retries on WouldBlock.
+        let r_handle = std::thread::spawn(move || {
+            let mut rc = RetryConn(r_conn);
+            hs_r.do_responder(&mut rc)
+        });
+        let (mut i_fi, mut i_fr) = {
+            let mut rc = RetryConn(i_conn);
+            hs_i.do_initiator(&mut rc).expect("initiator failed")
+        };
+        let (mut r_fi, mut r_fr) = r_handle.join().unwrap().expect("responder failed");
+
+        // Initiator sends on fromInitiator; responder receives on fromInitiator
+        let ct = i_fi.encrypt(&[], b"nk hello");
+        let pt = r_fi.decrypt(&[], &ct).expect("r_fi decrypt failed");
+        assert_eq!(pt, b"nk hello");
+
+        // Responder sends on fromResponder; initiator receives on fromResponder
+        let ct2 = r_fr.encrypt(&[], b"nk world");
+        let pt2 = i_fr.decrypt(&[], &ct2).expect("i_fr decrypt failed");
+        assert_eq!(pt2, b"nk world");
     }
 }
