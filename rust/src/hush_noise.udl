@@ -1,11 +1,10 @@
 // hush_noise.udl — UniFFI interface definition for hush-noise
 //
-// Exposes the full public API of the Noise_XX_25519_ChaChaPoly_BLAKE2s
-// implementation to Swift and Kotlin via a cdylib.
+// Exposes Noise_XX_25519_ChaChaPoly_BLAKE2s and Noise_NK_25519_ChaChaPoly_BLAKE2s
+// to Swift and Kotlin via a cdylib.
 //
-// Transport abstraction: the library is transport-agnostic. Callers supply a
-// NoiseTransport object that bridges the Read+Write requirement across the
-// language boundary.
+// Transport abstraction: callers supply a NoiseTransport object that bridges
+// the Read+Write requirement across the language boundary.
 
 namespace hush_noise {
     /// Generate a fresh X25519 keypair from a secure random source.
@@ -16,15 +15,29 @@ namespace hush_noise {
 
     /// Perform the XX handshake as the Initiator.
     /// Blocks until the three-message handshake completes.
-    /// Returns a fully-negotiated Session on success.
+    /// Returns a fully-negotiated SessionXx on success.
     [Throws=NoiseError]
-    Session dial(NoiseTransport transport, KeypairRecord keypair);
+    SessionXx dial_xx(NoiseTransport transport, KeypairRecord keypair);
 
     /// Perform the XX handshake as the Responder.
     /// Blocks until the three-message handshake completes.
-    /// Returns a fully-negotiated Session on success.
+    /// Returns a fully-negotiated SessionXx on success.
     [Throws=NoiseError]
-    Session accept(NoiseTransport transport, KeypairRecord keypair);
+    SessionXx accept_xx(NoiseTransport transport, KeypairRecord keypair);
+
+    /// Perform the NK handshake as the Initiator.
+    /// `remote_static` is the Responder's known static public key — must be
+    /// supplied before calling dial_nk.
+    /// Blocks until the two-message handshake completes.
+    /// Returns a fully-negotiated SessionNk on success.
+    [Throws=NoiseError]
+    SessionNk dial_nk(NoiseTransport transport, KeypairRecord keypair, sequence<u8> remote_static);
+
+    /// Perform the NK handshake as the Responder.
+    /// Blocks until the two-message handshake completes.
+    /// Returns a fully-negotiated SessionNk on success.
+    [Throws=NoiseError]
+    SessionNk accept_nk(NoiseTransport transport, KeypairRecord keypair);
 };
 
 /// A static X25519 keypair. public_key is safe to share freely.
@@ -49,25 +62,36 @@ interface NoiseTransport {
     void write(sequence<u8> data);
 };
 
-/// A fully negotiated, bidirectional encrypted Noise channel.
-/// send and receive are safe to call concurrently.
-/// Sessions are not resumable after close.
-interface Session {
-    /// Encrypt payload and write it to the transport.
-    /// Returns NoiseError if the payload exceeds 65535 bytes, the session is
-    /// closed, or the transport fails.
+/// A fully negotiated, bidirectional encrypted channel produced by the XX
+/// Handshake Pattern. send and receive are safe to call concurrently.
+/// remote_public_key() returns the authenticated static public key of the
+/// remote peer unconditionally — mutual authentication is guaranteed by XX.
+interface SessionXx {
     [Throws=NoiseError]
     void send([ByRef] sequence<u8> payload);
 
-    /// Read one message from the transport, decrypt it, and return the plaintext.
     [Throws=NoiseError]
     sequence<u8> receive();
 
-    /// Return the authenticated static public key of the remote peer.
+    /// Returns the authenticated static public key of the remote peer.
+    /// Always present — XX guarantees mutual authentication.
     sequence<u8> remote_public_key();
 
-    /// Close the underlying transport.
-    /// Subsequent send/receive calls return NoiseError.
+    [Throws=NoiseError]
+    void close();
+};
+
+/// A fully negotiated, bidirectional encrypted channel produced by the NK
+/// Handshake Pattern. send and receive are safe to call concurrently.
+/// remote_public_key() is absent — the Initiator is anonymous by design and
+/// the Initiator already knew the Responder's key before the handshake.
+interface SessionNk {
+    [Throws=NoiseError]
+    void send([ByRef] sequence<u8> payload);
+
+    [Throws=NoiseError]
+    sequence<u8> receive();
+
     [Throws=NoiseError]
     void close();
 };
@@ -75,12 +99,8 @@ interface Session {
 /// Errors returned by the hush-noise API.
 [Error]
 interface NoiseError {
-    /// A transport-level I/O failure occurred.
     Transport(string message);
-    /// Handshake failed — authentication or decryption error.
     Handshake(string message);
-    /// The session has been closed.
     Closed();
-    /// The message payload exceeded the 65535-byte limit.
     PayloadTooLarge();
 };
