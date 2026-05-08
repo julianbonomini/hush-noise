@@ -31,7 +31,10 @@ mod tests {
     use hex;
     use serde::Deserialize;
 
-    use crate::{handshake::HandshakeState, keypair::Keypair};
+    use crate::{
+        handshake::{HandshakeState, HandshakeStateNk},
+        keypair::Keypair,
+    };
 
     /// Tracer bullet: confirms the test infrastructure compiles and runs,
     /// and that testdata/cacophony.json is accessible from tests.
@@ -41,21 +44,39 @@ mod tests {
         assert!(!vectors.is_empty(), "cacophony.json should not be empty");
         assert!(
             vectors.contains("Noise_XX_25519_ChaChaPoly_BLAKE2s"),
-            "cacophony.json should contain the target protocol"
+            "cacophony.json should contain XX protocol"
+        );
+        assert!(
+            vectors.contains("Noise_NK_25519_ChaChaPoly_BLAKE2s"),
+            "cacophony.json should contain NK protocol"
         );
     }
 
+    // ── XX vector structs ──────────────────────────────────────────────────────
+
     #[derive(Deserialize)]
     struct CacophonyFile {
-        vectors: Vec<CacophonyVector>,
+        vectors: Vec<serde_json::Value>,
     }
 
     #[derive(Deserialize)]
-    struct CacophonyVector {
+    struct XxVector {
         protocol_name: String,
         init_prologue: String,
         init_static: String,
         init_ephemeral: String,
+        resp_static: String,
+        resp_ephemeral: String,
+        handshake_hash: String,
+        messages: Vec<Message>,
+    }
+
+    #[derive(Deserialize)]
+    struct NkVector {
+        protocol_name: String,
+        init_prologue: String,
+        init_ephemeral: String,
+        init_remote_static: String,
         resp_static: String,
         resp_ephemeral: String,
         handshake_hash: String,
@@ -92,12 +113,36 @@ mod tests {
             "cacophony.json contains no vectors"
         );
 
-        for vec in &file.vectors {
-            run_cacophony_vector(vec);
+        for val in &file.vectors {
+            if val["protocol_name"] == "Noise_XX_25519_ChaChaPoly_BLAKE2s" {
+                let vec: XxVector = serde_json::from_value(val.clone()).expect("parse XX vector");
+                run_cacophony_xx_vector(&vec);
+            }
         }
     }
 
-    fn run_cacophony_vector(vec: &CacophonyVector) {
+    /// TestNkSpecVectors: verifies HandshakeStateNk against the official
+    /// cacophony test vectors for Noise_NK_25519_ChaChaPoly_BLAKE2s.
+    #[test]
+    fn test_nk_spec_vectors() {
+        let raw = include_str!("../testdata/cacophony.json");
+        let file: CacophonyFile = serde_json::from_str(raw).expect("parse cacophony.json");
+
+        let mut found = false;
+        for val in &file.vectors {
+            if val["protocol_name"] == "Noise_NK_25519_ChaChaPoly_BLAKE2s" {
+                let vec: NkVector = serde_json::from_value(val.clone()).expect("parse NK vector");
+                run_cacophony_nk_vector(&vec);
+                found = true;
+            }
+        }
+        assert!(
+            found,
+            "no Noise_NK_25519_ChaChaPoly_BLAKE2s vector found in cacophony.json"
+        );
+    }
+
+    fn run_cacophony_xx_vector(vec: &XxVector) {
         let init_static = keypair_from_priv_hex(&vec.init_static);
         let init_ephemeral = keypair_from_priv_hex(&vec.init_ephemeral);
         let resp_static = keypair_from_priv_hex(&vec.resp_static);
@@ -147,18 +192,13 @@ mod tests {
         );
 
         // Post-handshake messages:
-        // msg[3]: initiator→responder (initiator sends on fromInitiator)
-        // msg[4]: responder→initiator (responder sends on fromResponder)
-        // msg[5]: initiator→responder (initiator sends on fromInitiator)
         for (idx, msg) in vec.messages[3..].iter().enumerate() {
             let payload = hex::decode(&msg.payload).unwrap();
             let want_ct = hex::decode(&msg.ciphertext).unwrap();
 
             let got_ct = if idx % 2 == 0 {
-                // even: initiator sends on fromInitiator
                 i_fi.encrypt(&[], &payload)
             } else {
-                // odd: responder sends on fromResponder
                 r_fr.encrypt(&[], &payload)
             };
 
@@ -171,7 +211,105 @@ mod tests {
             );
         }
 
-        // Suppress unused warnings
         let _ = (i_fr, r_fi);
+    }
+
+    fn run_cacophony_nk_vector(vec: &NkVector) {
+        let init_ephemeral = keypair_from_priv_hex(&vec.init_ephemeral);
+        let resp_static = keypair_from_priv_hex(&vec.resp_static);
+        let resp_ephemeral = keypair_from_priv_hex(&vec.resp_ephemeral);
+        let prologue = hex::decode(&vec.init_prologue).expect("decode prologue");
+
+        // The initiator knows the responder's static public key (init_remote_static).
+        // Verify it matches resp_static's derived public key.
+        let init_remote_static_bytes =
+            hex::decode(&vec.init_remote_static).expect("decode init_remote_static");
+        let mut init_rs = [0u8; 32];
+        init_rs.copy_from_slice(&init_remote_static_bytes);
+
+        // Use a dummy local static for the initiator — NK does not authenticate the initiator.
+        use crate::keypair::generate_keypair;
+        let init_static = generate_keypair();
+
+        let payload0 = hex::decode(&vec.messages[0].payload).unwrap();
+        let payload1 = hex::decode(&vec.messages[1].payload).unwrap();
+
+        // ── Initiator: write msg0 (-> e, es [payload]) ─────────────────────────
+        let mut hs_i =
+            HandshakeStateNk::new_fixed(init_static, init_ephemeral, Some(init_rs), &prologue);
+        let mut msg0 = Vec::new();
+        hs_i.write_msg0_raw(&mut msg0, &payload0);
+
+        let want_ct0 = hex::decode(&vec.messages[0].ciphertext).unwrap();
+        assert_eq!(
+            msg0, want_ct0,
+            "[{}] msg0 ciphertext mismatch",
+            vec.protocol_name
+        );
+
+        // ── Responder: read msg0, write msg1 (<- e, ee [payload]) ──────────────
+        let mut hs_r = HandshakeStateNk::new_fixed(
+            Keypair::new(resp_static.private(), resp_static.public_key),
+            resp_ephemeral,
+            None,
+            &prologue,
+        );
+        hs_r.read_msg0_raw(&msg0).expect("responder read_msg0_raw");
+
+        let mut msg1 = Vec::new();
+        hs_r.write_msg1_raw(&mut msg1, &payload1);
+
+        let want_ct1 = hex::decode(&vec.messages[1].ciphertext).unwrap();
+        assert_eq!(
+            msg1, want_ct1,
+            "[{}] msg1 ciphertext mismatch",
+            vec.protocol_name
+        );
+
+        // ── Both sides derive cipher states ────────────────────────────────────
+        let (i_fi, mut i_fr, i_hash) = hs_i.read_msg1_raw(&msg1).expect("initiator read_msg1_raw");
+        let (mut r_fi, r_fr, r_hash) = hs_r.split_responder();
+
+        // Assert handshake hash matches.
+        let want_hash = hex::decode(&vec.handshake_hash).expect("decode handshake_hash");
+        assert_eq!(
+            i_hash.as_ref(),
+            want_hash.as_slice(),
+            "[{}] initiator handshake_hash mismatch",
+            vec.protocol_name
+        );
+        assert_eq!(
+            r_hash.as_ref(),
+            want_hash.as_slice(),
+            "[{}] responder handshake_hash mismatch",
+            vec.protocol_name
+        );
+
+        // Post-handshake messages (msg[2..]):
+        // NK ends with the responder's message, so per Noise spec §7.3:
+        //   initiator sends on c2 = split()[1] = i_fr
+        //   responder sends on c1 = split()[0] = r_fi
+        // even index → initiator sends (i_fr)
+        // odd index  → responder sends (r_fi)
+        for (idx, msg) in vec.messages[2..].iter().enumerate() {
+            let payload = hex::decode(&msg.payload).unwrap();
+            let want_ct = hex::decode(&msg.ciphertext).unwrap();
+
+            let got_ct = if idx % 2 == 0 {
+                i_fr.encrypt(&[], &payload)
+            } else {
+                r_fi.encrypt(&[], &payload)
+            };
+
+            assert_eq!(
+                got_ct,
+                want_ct,
+                "[{}] message[{}] ciphertext mismatch",
+                vec.protocol_name,
+                idx + 2
+            );
+        }
+
+        let _ = (i_fi, r_fr);
     }
 }

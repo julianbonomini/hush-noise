@@ -231,6 +231,71 @@ impl HandshakeStateNk {
         }
     }
 
+    /// Builds msg0 bytes (-> e, es [payload]) into `out` without framing.
+    /// Used by spec vector tests to compare raw message bytes.
+    #[cfg(test)]
+    pub(crate) fn write_msg0_raw(&mut self, out: &mut Vec<u8>, payload: &[u8]) {
+        self.ss.mix_hash(&self.e.public_key);
+        let es_dh = dh(self.e.private(), self.rs);
+        self.ss.mix_key(&es_dh);
+        let enc_payload = self.ss.encrypt_and_hash(payload);
+        out.extend_from_slice(&self.e.public_key);
+        out.extend_from_slice(&enc_payload);
+    }
+
+    /// Consumes msg0 bytes (<- e, es [payload]) without framing.
+    #[cfg(test)]
+    pub(crate) fn read_msg0_raw(&mut self, msg: &[u8]) -> Result<Vec<u8>, String> {
+        if msg.len() < 32 {
+            return Err(format!("noise: nk msg0 too short: {} bytes", msg.len()));
+        }
+        self.re.copy_from_slice(&msg[..32]);
+        self.ss.mix_hash(&self.re);
+        let es_dh = dh(self.s.private(), self.re);
+        self.ss.mix_key(&es_dh);
+        self.ss.decrypt_and_hash(&msg[32..])
+    }
+
+    /// Builds msg1 bytes (<- e, ee [payload]) into `out` without framing.
+    #[cfg(test)]
+    pub(crate) fn write_msg1_raw(&mut self, out: &mut Vec<u8>, payload: &[u8]) {
+        self.ss.mix_hash(&self.e.public_key);
+        let ee_dh = dh(self.e.private(), self.re);
+        self.ss.mix_key(&ee_dh);
+        let enc_payload = self.ss.encrypt_and_hash(payload);
+        out.extend_from_slice(&self.e.public_key);
+        out.extend_from_slice(&enc_payload);
+    }
+
+    /// Consumes msg1 bytes (-> e, ee [payload]) without framing.
+    /// Returns (fromInitiator, fromResponder, handshake_hash).
+    #[cfg(test)]
+    pub(crate) fn read_msg1_raw(
+        mut self,
+        msg: &[u8],
+    ) -> Result<(CipherState, CipherState, [u8; 32]), String> {
+        if msg.len() < 32 {
+            return Err(format!("noise: nk msg1 too short: {} bytes", msg.len()));
+        }
+        self.re.copy_from_slice(&msg[..32]);
+        self.ss.mix_hash(&self.re);
+        let ee_dh = dh(self.e.private(), self.re);
+        self.ss.mix_key(&ee_dh);
+        self.ss.decrypt_and_hash(&msg[32..])?;
+        let hash = self.ss.h;
+        let (fi, fr) = self.ss.split();
+        Ok((fi, fr, hash))
+    }
+
+    /// Finalises the responder side after write_msg1_raw.
+    /// Returns (fromInitiator, fromResponder, handshake_hash).
+    #[cfg(test)]
+    pub(crate) fn split_responder(self) -> (CipherState, CipherState, [u8; 32]) {
+        let hash = self.ss.h;
+        let (fi, fr) = self.ss.split();
+        (fi, fr, hash)
+    }
+
     /// Runs the full NK handshake as the Initiator.
     ///
     /// msg0: -> e, es
