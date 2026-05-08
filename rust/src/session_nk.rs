@@ -1,6 +1,7 @@
 use std::io::{self, Read, Write};
 
 use crate::{
+    framing::{read_frame, write_frame},
     keypair::Keypair,
     session::{RetryConn, SessionInner},
 };
@@ -17,13 +18,9 @@ pub struct Session<T: Read + Write + Send> {
 }
 
 impl<T: Read + Write + Send> Session<T> {
-    fn new(
-        conn: T,
-        send_cs: crate::cipher::CipherState,
-        recv_cs: crate::cipher::CipherState,
-    ) -> Self {
+    fn new(conn: T, transport: snow::TransportState) -> Self {
         Self {
-            inner: SessionInner::new(conn, send_cs, recv_cs),
+            inner: SessionInner::new(conn, transport),
         }
     }
 
@@ -69,20 +66,68 @@ fn do_handshake<T: Read + Write + Send>(
     keypair: Keypair,
     remote_static: Option<[u8; 32]>,
 ) -> Result<Session<T>, String> {
-    let hs = crate::handshake::HandshakeStateNk::new(keypair, remote_static);
-    let mut rc = RetryConn(conn);
+    // Bind key bytes to locals with sufficient lifetime for the builder borrows.
+    let priv_key = keypair.private();
+    let rs_buf: Option<[u8; 32]> = remote_static;
 
-    let (send_cs, recv_cs) = if remote_static.is_some() {
-        // Initiator: -> e, es  then  <- e, ee
-        let (fi, fr) = hs.do_initiator(&mut rc)?;
-        (fi, fr)
+    let mut builder = snow::Builder::new(
+        "Noise_NK_25519_ChaChaPoly_BLAKE2s"
+            .parse()
+            .map_err(|e| format!("noise: bad params: {:?}", e))?,
+    )
+    .local_private_key(&priv_key)
+    .map_err(|e| format!("noise: set local key: {:?}", e))?;
+
+    if let Some(ref rs) = rs_buf {
+        builder = builder
+            .remote_public_key(rs)
+            .map_err(|e| format!("noise: set remote key: {:?}", e))?;
+    }
+
+    let mut hs = if remote_static.is_some() {
+        builder
+            .build_initiator()
+            .map_err(|e| format!("noise: build initiator: {:?}", e))?
     } else {
-        // Responder: <- e, es  then  -> e, ee
-        let (fi, fr) = hs.do_responder(&mut rc)?;
-        (fr, fi)
+        builder
+            .build_responder()
+            .map_err(|e| format!("noise: build responder: {:?}", e))?
     };
 
-    Ok(Session::new(rc.0, send_cs, recv_cs))
+    let mut rc = RetryConn(conn);
+    let mut buf = vec![0u8; 65535];
+
+    if remote_static.is_some() {
+        // Initiator: -> e, es
+        let len = hs
+            .write_message(&[], &mut buf)
+            .map_err(|e| format!("noise: write msg0: {:?}", e))?;
+        write_frame(&mut rc, &buf[..len])
+            .map_err(|e| format!("noise: frame msg0: {}", e))?;
+
+        // <- e, ee
+        let msg1 = read_frame(&mut rc).map_err(|e| format!("noise: read msg1: {}", e))?;
+        hs.read_message(&msg1, &mut buf)
+            .map_err(|e| format!("noise: read msg1: {:?}", e))?;
+    } else {
+        // Responder: <- e, es
+        let msg0 = read_frame(&mut rc).map_err(|e| format!("noise: read msg0: {}", e))?;
+        hs.read_message(&msg0, &mut buf)
+            .map_err(|e| format!("noise: read msg0: {:?}", e))?;
+
+        // -> e, ee
+        let len = hs
+            .write_message(&[], &mut buf)
+            .map_err(|e| format!("noise: write msg1: {:?}", e))?;
+        write_frame(&mut rc, &buf[..len])
+            .map_err(|e| format!("noise: frame msg1: {}", e))?;
+    }
+
+    let transport = hs
+        .into_transport_mode()
+        .map_err(|e| format!("noise: into_transport_mode: {:?}", e))?;
+
+    Ok(Session::new(rc.0, transport))
 }
 
 // ── Tests ─────────────────────────────────────────────────────────────────────
@@ -93,7 +138,6 @@ mod tests {
     use crate::keypair::generate_keypair;
     use crate::test_helpers::mem_pipe_pair;
 
-    /// Tracer bullet: NK dial and accept complete and can exchange a message.
     #[test]
     fn dial_accept_complete() {
         let r_kp = generate_keypair();

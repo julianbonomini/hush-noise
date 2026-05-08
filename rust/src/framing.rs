@@ -1,10 +1,11 @@
 use std::io::{self, Read, Write};
 
-use crate::cipher::MAX_MESSAGE_SIZE;
+/// Max plaintext per snow transport message: 65535 (max frame) - 16 (AEAD tag).
+pub(crate) const MAX_PLAINTEXT_SIZE: usize = 65519;
 
 /// Writes data to w with a 2-byte big-endian length prefix.
 pub(crate) fn write_frame(w: &mut dyn Write, data: &[u8]) -> io::Result<()> {
-    if data.len() > MAX_MESSAGE_SIZE {
+    if data.len() > 65535 {
         return Err(io::Error::new(
             io::ErrorKind::InvalidInput,
             format!("noise: frame too large: {} bytes", data.len()),

@@ -1,6 +1,7 @@
 use std::io::{self, Read, Write};
 
 use crate::{
+    framing::{read_frame, write_frame},
     keypair::Keypair,
     session::{RetryConn, SessionInner},
 };
@@ -17,14 +18,9 @@ pub struct Session<T: Read + Write + Send> {
 }
 
 impl<T: Read + Write + Send> Session<T> {
-    fn new(
-        conn: T,
-        send_cs: crate::cipher::CipherState,
-        recv_cs: crate::cipher::CipherState,
-        remote_pub_key: [u8; 32],
-    ) -> Self {
+    fn new(conn: T, transport: snow::TransportState, remote_pub_key: [u8; 32]) -> Self {
         Self {
-            inner: SessionInner::new(conn, send_cs, recv_cs),
+            inner: SessionInner::new(conn, transport),
             remote_pub_key,
         }
     }
@@ -57,13 +53,13 @@ impl<T: Read + Write + Send> Session<T> {
 // ── dial / accept ─────────────────────────────────────────────────────────────
 
 /// Performs the XX handshake as the Initiator over conn using the provided
-/// Keypair. Returns a Session on success or an Expected Failure error.
+/// Keypair. Returns a Session on success or an error string.
 pub fn dial<T: Read + Write + Send>(conn: T, keypair: Keypair) -> Result<Session<T>, String> {
     do_handshake(conn, keypair, true)
 }
 
 /// Performs the XX handshake as the Responder over conn using the provided
-/// Keypair. Returns a Session on success or an Expected Failure error.
+/// Keypair. Returns a Session on success or an error string.
 pub fn accept<T: Read + Write + Send>(conn: T, keypair: Keypair) -> Result<Session<T>, String> {
     do_handshake(conn, keypair, false)
 }
@@ -73,30 +69,78 @@ fn do_handshake<T: Read + Write + Send>(
     keypair: Keypair,
     initiator: bool,
 ) -> Result<Session<T>, String> {
-    let mut hs = crate::handshake::HandshakeState::new(keypair);
-    let mut rc = RetryConn(conn);
+    let priv_key = keypair.private();
+    let builder = snow::Builder::new(
+        "Noise_XX_25519_ChaChaPoly_BLAKE2s"
+            .parse()
+            .map_err(|e| format!("noise: bad params: {:?}", e))?,
+    )
+    .local_private_key(&priv_key)
+    .map_err(|e| format!("noise: set local key: {:?}", e))?;
 
-    let (send_cs, recv_cs, remote_pub_key) = if initiator {
-        // -> e
-        hs.write_msg0(&mut rc, &[])
-            .map_err(|e| format!("noise: write_msg0: {}", e))?;
-        // <- e, ee, s, es
-        hs.read_msg1(&mut rc)?;
-        // -> s, se
-        let (fi, fr, _hash, rs) = hs.write_msg2(&mut rc, &[])?;
-        (fi, fr, rs)
+    let mut hs = if initiator {
+        builder
+            .build_initiator()
+            .map_err(|e| format!("noise: build initiator: {:?}", e))?
     } else {
-        // <- e
-        hs.read_msg0(&mut rc)?;
-        // -> e, ee, s, es
-        hs.write_msg1(&mut rc, &[])
-            .map_err(|e| format!("noise: write_msg1: {}", e))?;
-        // <- s, se
-        let (fi, fr, _hash, rs) = hs.read_msg2(&mut rc)?;
-        (fr, fi, rs)
+        builder
+            .build_responder()
+            .map_err(|e| format!("noise: build responder: {:?}", e))?
     };
 
-    Ok(Session::new(rc.0, send_cs, recv_cs, remote_pub_key))
+    let mut rc = RetryConn(conn);
+    let mut buf = vec![0u8; 65535];
+
+    if initiator {
+        // -> e
+        let len = hs
+            .write_message(&[], &mut buf)
+            .map_err(|e| format!("noise: write msg0: {:?}", e))?;
+        write_frame(&mut rc, &buf[..len])
+            .map_err(|e| format!("noise: frame msg0: {}", e))?;
+
+        // <- e, ee, s, es
+        let msg1 = read_frame(&mut rc).map_err(|e| format!("noise: read msg1: {}", e))?;
+        hs.read_message(&msg1, &mut buf)
+            .map_err(|e| format!("noise: read msg1: {:?}", e))?;
+
+        // -> s, se
+        let len = hs
+            .write_message(&[], &mut buf)
+            .map_err(|e| format!("noise: write msg2: {:?}", e))?;
+        write_frame(&mut rc, &buf[..len])
+            .map_err(|e| format!("noise: frame msg2: {}", e))?;
+    } else {
+        // <- e
+        let msg0 = read_frame(&mut rc).map_err(|e| format!("noise: read msg0: {}", e))?;
+        hs.read_message(&msg0, &mut buf)
+            .map_err(|e| format!("noise: read msg0: {:?}", e))?;
+
+        // -> e, ee, s, es
+        let len = hs
+            .write_message(&[], &mut buf)
+            .map_err(|e| format!("noise: write msg1: {:?}", e))?;
+        write_frame(&mut rc, &buf[..len])
+            .map_err(|e| format!("noise: frame msg1: {}", e))?;
+
+        // <- s, se
+        let msg2 = read_frame(&mut rc).map_err(|e| format!("noise: read msg2: {}", e))?;
+        hs.read_message(&msg2, &mut buf)
+            .map_err(|e| format!("noise: read msg2: {:?}", e))?;
+    }
+
+    let remote_static = hs
+        .get_remote_static()
+        .ok_or_else(|| "noise: no remote static after XX handshake".to_string())?;
+    let remote_pub_key: [u8; 32] = remote_static
+        .try_into()
+        .map_err(|_| "noise: remote static key is not 32 bytes".to_string())?;
+
+    let transport = hs
+        .into_transport_mode()
+        .map_err(|e| format!("noise: into_transport_mode: {:?}", e))?;
+
+    Ok(Session::new(rc.0, transport, remote_pub_key))
 }
 
 // ── Tests ─────────────────────────────────────────────────────────────────────
