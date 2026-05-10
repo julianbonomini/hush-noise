@@ -61,11 +61,16 @@ impl<T: Read + Write + Send> SessionInner<T> {
 
     /// Read exactly `n` bytes, releasing the conn mutex between read() calls
     /// so concurrent send() can interleave.
+    ///
+    /// The guard is bound to a `let` so it drops at the `;` — before the
+    /// match — ensuring the lock is never held across the WouldBlock sleep.
     pub(crate) fn read_exact_interruptible(&self, n: usize) -> io::Result<Vec<u8>> {
         let mut buf = vec![0u8; n];
         let mut filled = 0;
         while filled < n {
-            match self.conn.lock().unwrap().read(&mut buf[filled..]) {
+            // Lock, read, unlock (guard drops at `;` before match).
+            let result = self.conn.lock().unwrap().read(&mut buf[filled..]);
+            match result {
                 Ok(0) => {
                     return Err(io::Error::new(
                         ErrorKind::UnexpectedEof,
@@ -76,6 +81,7 @@ impl<T: Read + Write + Send> SessionInner<T> {
                 Err(e)
                     if e.kind() == ErrorKind::WouldBlock || e.kind() == ErrorKind::Interrupted =>
                 {
+                    // Sleep without holding the lock so concurrent send() can proceed.
                     std::thread::sleep(std::time::Duration::from_micros(50));
                 }
                 Err(e) => return Err(e),
