@@ -1,4 +1,4 @@
-// hush_noise.udl — UniFFI interface definition for hush-noise
+// trueseal_noise.udl — UniFFI interface definition for trueseal-noise
 //
 // Exposes Noise_XX_25519_ChaChaPoly_BLAKE2s and Noise_NK_25519_ChaChaPoly_BLAKE2s
 // to Swift and Kotlin via a cdylib.
@@ -6,7 +6,7 @@
 // Transport abstraction: callers supply a NoiseTransport object that bridges
 // the Read+Write requirement across the language boundary.
 
-namespace hush_noise {
+namespace trueseal_noise {
     /// Generate a fresh X25519 keypair from a secure random source.
     KeypairRecord generate_keypair();
 
@@ -96,7 +96,7 @@ interface SessionNk {
     void close();
 };
 
-/// Errors returned by the hush-noise API.
+/// Errors returned by the trueseal-noise API.
 [Error]
 interface NoiseError {
     Transport(string message);

@@ -1,6 +1,6 @@
-# hush-noise
+# trueseal-noise
 
-A Rust implementation of the Noise Protocol Framework — a reusable encrypted transport primitive. The Rust crate is the canonical portable implementation: it compiles to every platform (iOS, Android, macOS, Linux, WASM) and enables Swift/Kotlin bindings via UniFFI. It implements `Noise_XX_25519_ChaChaPoly_BLAKE2s` and `Noise_NK_25519_ChaChaPoly_BLAKE2s`, verified against the official cacophony test vectors. The Rust crate is named `hush-noise` (not yet published to crates.io).
+A Rust implementation of the Noise Protocol Framework — a reusable encrypted transport primitive. The Rust crate is the canonical portable implementation: it compiles to every platform (iOS, Android, macOS, Linux, WASM) and enables Swift/Kotlin bindings via UniFFI. It implements `Noise_XX_25519_ChaChaPoly_BLAKE2s` and `Noise_NK_25519_ChaChaPoly_BLAKE2s`, verified against the official cacophony test vectors. The Rust crate is named `trueseal-noise` (not yet published to crates.io).
 
 ## Language
 

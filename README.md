@@ -1,4 +1,4 @@
-# hush-noise
+# trueseal-noise
 
 `Noise_XX_25519_ChaChaPoly_BLAKE2s` and `Noise_NK_25519_ChaChaPoly_BLAKE2s` in Rust.
 
@@ -20,7 +20,7 @@ Two patterns. Pick one before you dial.
 | After handshake: `remote_public_key()` | both sides | responder side only |
 | Typical use | device ↔ device | device → relay / client → server |
 
-In the hush stack: XX is used between devices (hush-sync pairing and sync); NK is used for device-to-relay sessions (hush-relay push/receive).
+In the trueseal stack: XX is used between devices (trueseal-sync pairing and sync); NK is used for device-to-relay sessions (trueseal-relay push/receive).
 
 ---
 
@@ -30,7 +30,7 @@ Not yet published to crates.io. Add via path or git:
 
 ```toml
 [dependencies]
-hush-noise = { path = "../hush-noise/rust" }
+trueseal-noise = { path = "../trueseal-noise/rust" }
 ```
 
 ---
@@ -42,8 +42,8 @@ Three-message handshake. Both peers prove their static keypair. Neither needs th
 ```rust
 use std::net::{TcpListener, TcpStream};
 use std::thread;
-use hush_noise::keypair::{generate_keypair, Keypair};
-use hush_noise::session_xx::{dial, accept};
+use trueseal_noise::keypair::{generate_keypair, Keypair};
+use trueseal_noise::session_xx::{dial, accept};
 
 // --- responder ---
 let listener = TcpListener::bind("127.0.0.1:7700").unwrap();
@@ -77,7 +77,7 @@ let msg = r_session.receive().unwrap(); // → b"hello"
 Two-message handshake. Initiator is anonymous; responder is authenticated. Initiator must have the responder's static public key before dialing.
 
 ```rust
-use hush_noise::session_nk::{dial, accept};
+use trueseal_noise::session_nk::{dial, accept};
 
 // --- initiator ---
 // Must supply the responder's known static public key.
@@ -96,7 +96,7 @@ let msg = r_session.receive().unwrap();
 ## Keypairs
 
 ```rust
-use hush_noise::keypair::{generate_keypair, Keypair};
+use trueseal_noise::keypair::{generate_keypair, Keypair};
 
 // Generate once, persist yourself.
 let kp = generate_keypair();          // RFC 7748 clamped X25519 keypair
@@ -159,12 +159,12 @@ The `ffi` module wraps the core API for UniFFI. Callers implement a `NoiseTransp
 ```sh
 cargo build
 cargo run --bin uniffi-bindgen -- generate \
-  --library target/debug/libhush_noise.dylib \
+  --library target/debug/libtrueseal_noise.dylib \
   --language swift \
   --out-dir bindings/swift
 ```
 
-If you're building on Apple platforms, start with **hush-sync-swift** — it wraps the prebuilt xcframework and gives you the full sync engine, not just the channel layer.
+If you're building on Apple platforms, start with **trueseal-sync-swift** — it wraps the prebuilt xcframework and gives you the full sync engine, not just the channel layer.
 
 ---
 
@@ -178,11 +178,11 @@ src/
   session.rs        — SessionInner shared transport (not public API)
   framing.rs        — 2-byte length-prefix read/write
   ffi.rs            — UniFFI wrapper (SessionXx, SessionNk, NoiseError, NoiseTransport)
-  hush_noise.udl    — UniFFI interface definition
+  trueseal_noise.udl    — UniFFI interface definition
 tests/
   cacophony.rs      — Cacophony spec-vector conformance
 ```
 
 ---
 
-hush-noise is the cryptographic foundation of the [hush ecosystem](https://github.com/julianbonomini). The layer above it is **hush-sync** — device identity, pairing, group membership, and outbox delivery built on top of these channels.
+trueseal-noise is the cryptographic foundation of the [trueseal ecosystem](https://github.com/julianbonomini). The layer above it is **trueseal-sync** — device identity, pairing, group membership, and outbox delivery built on top of these channels.

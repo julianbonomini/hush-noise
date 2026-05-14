@@ -34,12 +34,12 @@ jobs:
       - name: Generate Swift bindings
         run: |
           cargo run --bin uniffi-bindgen -- generate \
-            --library target/debug/libhush_noise.so \
+            --library target/debug/libtrueseal_noise.so \
             --language swift \
             --out-dir /tmp/swift-bindings
       - name: Generate Kotlin bindings
         run: |
           cargo run --bin uniffi-bindgen -- generate \
-            --library target/debug/libhush_noise.so \
+            --library target/debug/libtrueseal_noise.so \
             --language kotlin \
             --out-dir /tmp/kotlin-bindings

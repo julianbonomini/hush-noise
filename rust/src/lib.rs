@@ -1,4 +1,4 @@
-/// hush-noise — Noise_XX_25519_ChaChaPoly_BLAKE2s and Noise_NK_25519_ChaChaPoly_BLAKE2s
+/// trueseal-noise — Noise_XX_25519_ChaChaPoly_BLAKE2s and Noise_NK_25519_ChaChaPoly_BLAKE2s
 ///
 /// Implements the Noise Protocol Framework using the snow crate.
 ///
@@ -18,4 +18,4 @@ pub(crate) mod test_helpers;
 // find them without qualification.
 pub use ffi::*;
 
-uniffi::include_scaffolding!("hush_noise");
+uniffi::include_scaffolding!("trueseal_noise");

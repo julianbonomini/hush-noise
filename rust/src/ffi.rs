@@ -1,4 +1,4 @@
-/// ffi.rs — UniFFI FFI wrapper layer for hush-noise.
+/// ffi.rs — UniFFI FFI wrapper layer for trueseal-noise.
 ///
 /// Bridges session_xx::Session and session_nk::Session to UniFFI's object
 /// model, which requires Arc-wrapped types. The NoiseTransport callback

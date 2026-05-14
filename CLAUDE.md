@@ -4,7 +4,7 @@ Run `mempalace wake-up` at the start of every session to load relevant project c
 
 ### Issue tracker
 
-Issues live in GitHub Issues (`julianbonomini/hush-noise`). See `docs/agents/issue-tracker.md`.
+Issues live in GitHub Issues (`julianbonomini/trueseal-noise`). See `docs/agents/issue-tracker.md`.
 
 ### Triage labels
 

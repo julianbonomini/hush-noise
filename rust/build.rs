@@ -1,3 +1,3 @@
 fn main() {
-    uniffi::generate_scaffolding("src/hush_noise.udl").unwrap();
+    uniffi::generate_scaffolding("src/trueseal_noise.udl").unwrap();
 }

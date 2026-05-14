@@ -1,6 +1,6 @@
 /// Cacophony spec-vector conformance tests.
 ///
-/// Verifies that hush-noise (via snow) produces byte-exact ciphertext for every
+/// Verifies that trueseal-noise (via snow) produces byte-exact ciphertext for every
 /// Noise_NK and Noise_XX vector in testdata/cacophony.json. The vectors fix
 /// both static and ephemeral keys so outputs are fully deterministic.
 use hex;
