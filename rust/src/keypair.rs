@@ -1,5 +1,6 @@
 use rand::RngCore;
 use x25519_dalek::{PublicKey, StaticSecret};
+use zeroize::{Zeroize, ZeroizeOnDrop};
 
 /// Keypair is a static X25519 public/private key pair representing a peer's
 /// long-term identity. Generated and stored by the caller; passed into dial
@@ -7,6 +8,7 @@ use x25519_dalek::{PublicKey, StaticSecret};
 ///
 /// `public_key` is public — safe to share. The private key is accessible
 /// only via `private()` to reduce accidental exposure.
+#[derive(Zeroize, ZeroizeOnDrop)]
 pub struct Keypair {
     private_key: [u8; 32],
     pub public_key: [u8; 32],
@@ -47,13 +49,6 @@ pub fn generate_keypair() -> Keypair {
         private_key: priv_bytes,
         public_key: *public.as_bytes(),
     }
-}
-
-/// Performs X25519 Diffie-Hellman: DH(private_key, public_key).
-pub(crate) fn dh(priv_key: [u8; 32], pub_key: [u8; 32]) -> [u8; 32] {
-    let secret = StaticSecret::from(priv_key);
-    let public = PublicKey::from(pub_key);
-    *secret.diffie_hellman(&public).as_bytes()
 }
 
 #[cfg(test)]
@@ -100,15 +95,4 @@ mod tests {
         assert_eq!(restored.public_key, pub_bytes);
     }
 
-    /// DH is commutative: DH(a_priv, b_pub) == DH(b_priv, a_pub).
-    #[test]
-    fn dh_is_commutative() {
-        let a = generate_keypair();
-        let b = generate_keypair();
-
-        let shared_ab = dh(a.private(), b.public_key);
-        let shared_ba = dh(b.private(), a.public_key);
-
-        assert_eq!(shared_ab, shared_ba, "DH should be commutative");
-    }
 }

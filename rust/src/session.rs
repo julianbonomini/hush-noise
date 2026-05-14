@@ -69,7 +69,11 @@ impl<T: Read + Write + Send> SessionInner<T> {
         let mut filled = 0;
         while filled < n {
             // Lock, read, unlock (guard drops at `;` before match).
-            let result = self.conn.lock().unwrap().read(&mut buf[filled..]);
+            let result = self
+                .conn
+                .lock()
+                .map_err(|_| io::Error::other("noise: session poisoned"))?
+                .read(&mut buf[filled..]);
             match result {
                 Ok(0) => {
                     return Err(io::Error::new(
@@ -100,7 +104,11 @@ impl<T: Read + Write + Send> SessionInner<T> {
                 MAX_PLAINTEXT_SIZE
             ));
         }
-        if *self.closed.lock().unwrap() {
+        if *self
+            .closed
+            .lock()
+            .map_err(|_| "noise: session poisoned".to_string())?
+        {
             return Err("noise: session is closed".to_string());
         }
         // Allocate ciphertext buffer: plaintext + 16-byte AEAD tag.
@@ -108,7 +116,7 @@ impl<T: Read + Write + Send> SessionInner<T> {
         let len = self
             .transport
             .lock()
-            .unwrap()
+            .map_err(|_| "noise: session poisoned".to_string())?
             .write_message(payload, &mut ciphertext)
             .map_err(|e| format!("noise: encrypt: {:?}", e))?;
         let mut framed = Vec::with_capacity(2 + len);
@@ -116,7 +124,7 @@ impl<T: Read + Write + Send> SessionInner<T> {
         framed.extend_from_slice(&ciphertext[..len]);
         self.conn
             .lock()
-            .unwrap()
+            .map_err(|_| "noise: session poisoned".to_string())?
             .write_all(&framed)
             .map_err(|e| format!("noise: send: {}", e))
     }
@@ -124,7 +132,11 @@ impl<T: Read + Write + Send> SessionInner<T> {
     /// Reads one framed message from the transport, decrypts it, and returns
     /// the plaintext.
     pub(crate) fn receive(&self) -> Result<Vec<u8>, String> {
-        if *self.closed.lock().unwrap() {
+        if *self
+            .closed
+            .lock()
+            .map_err(|_| "noise: session poisoned".to_string())?
+        {
             return Err("noise: session is closed".to_string());
         }
         let header = self
@@ -138,7 +150,7 @@ impl<T: Read + Write + Send> SessionInner<T> {
         let len = self
             .transport
             .lock()
-            .unwrap()
+            .map_err(|_| "noise: session poisoned".to_string())?
             .read_message(&ciphertext, &mut plaintext)
             .map_err(|e| format!("noise: decrypt: {:?}", e))?;
         plaintext.truncate(len);
@@ -147,7 +159,10 @@ impl<T: Read + Write + Send> SessionInner<T> {
 
     /// Closes the session. Subsequent send/receive return errors.
     pub(crate) fn close(&self) -> io::Result<()> {
-        *self.closed.lock().unwrap() = true;
+        *self
+            .closed
+            .lock()
+            .map_err(|_| io::Error::other("noise: session poisoned"))? = true;
         Ok(())
     }
 }

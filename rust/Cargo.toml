@@ -19,6 +19,7 @@ snow = "0.10"
 rand = "0.8"
 uniffi = { version = "0.28", features = ["build", "cli"] }
 thiserror = "1"
+zeroize = { version = "1", features = ["derive"] }
 
 [build-dependencies]
 uniffi = { version = "0.28", features = ["build"] }
