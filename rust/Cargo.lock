@@ -470,21 +470,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "7f24254aa9a54b5c858eaee2f5bccdb46aaf0e486a595ed5fd8f86ba55232a70"
 
 [[package]]
-name = "trueseal-noise"
-version = "0.1.0"
-dependencies = [
- "hex",
- "rand",
- "serde",
- "serde_json",
- "snow",
- "thiserror",
- "uniffi",
- "x25519-dalek",
- "zeroize",
-]
-
-[[package]]
 name = "inout"
 version = "0.1.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -878,6 +863,21 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "f4f7f0dd8d50a853a531c426359045b1998f04219d88799810762cd4ad314234"
 dependencies = [
  "serde",
+]
+
+[[package]]
+name = "trueseal-noise"
+version = "0.1.0"
+dependencies = [
+ "hex",
+ "rand",
+ "serde",
+ "serde_json",
+ "snow",
+ "thiserror",
+ "uniffi",
+ "x25519-dalek",
+ "zeroize",
 ]
 
 [[package]]

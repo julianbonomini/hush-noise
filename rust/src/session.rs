@@ -27,7 +27,17 @@ impl<T: Read + Write> Read for RetryConn<T> {
 
 impl<T: Read + Write> Write for RetryConn<T> {
     fn write(&mut self, buf: &[u8]) -> io::Result<usize> {
-        self.0.write(buf)
+        loop {
+            match self.0.write(buf) {
+                Err(e)
+                    if e.kind() == ErrorKind::WouldBlock
+                        || e.kind() == ErrorKind::Interrupted =>
+                {
+                    std::thread::sleep(std::time::Duration::from_micros(50));
+                }
+                other => return other,
+            }
+        }
     }
     fn flush(&mut self) -> io::Result<()> {
         self.0.flush()
