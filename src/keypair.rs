@@ -94,5 +94,4 @@ mod tests {
         assert_eq!(restored.private(), priv_bytes);
         assert_eq!(restored.public_key, pub_bytes);
     }
-
 }

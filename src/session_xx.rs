@@ -96,8 +96,7 @@ fn do_handshake<T: Read + Write + Send>(
         let len = hs
             .write_message(&[], &mut buf)
             .map_err(|e| format!("noise: write msg0: {:?}", e))?;
-        write_frame(&mut rc, &buf[..len])
-            .map_err(|e| format!("noise: frame msg0: {}", e))?;
+        write_frame(&mut rc, &buf[..len]).map_err(|e| format!("noise: frame msg0: {}", e))?;
 
         // <- e, ee, s, es
         let msg1 = read_frame(&mut rc).map_err(|e| format!("noise: read msg1: {}", e))?;
@@ -108,8 +107,7 @@ fn do_handshake<T: Read + Write + Send>(
         let len = hs
             .write_message(&[], &mut buf)
             .map_err(|e| format!("noise: write msg2: {:?}", e))?;
-        write_frame(&mut rc, &buf[..len])
-            .map_err(|e| format!("noise: frame msg2: {}", e))?;
+        write_frame(&mut rc, &buf[..len]).map_err(|e| format!("noise: frame msg2: {}", e))?;
     } else {
         // <- e
         let msg0 = read_frame(&mut rc).map_err(|e| format!("noise: read msg0: {}", e))?;
@@ -120,8 +118,7 @@ fn do_handshake<T: Read + Write + Send>(
         let len = hs
             .write_message(&[], &mut buf)
             .map_err(|e| format!("noise: write msg1: {:?}", e))?;
-        write_frame(&mut rc, &buf[..len])
-            .map_err(|e| format!("noise: frame msg1: {}", e))?;
+        write_frame(&mut rc, &buf[..len]).map_err(|e| format!("noise: frame msg1: {}", e))?;
 
         // <- s, se
         let msg2 = read_frame(&mut rc).map_err(|e| format!("noise: read msg2: {}", e))?;

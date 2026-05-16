@@ -21,6 +21,10 @@ uniffi = { version = "0.28", features = ["build", "cli"] }
 thiserror = "1"
 zeroize = { version = "1", features = ["derive"] }
 
+[lints.clippy]
+# UniFFI-generated scaffolding triggers this; not our code.
+empty_line_after_doc_comments = "allow"
+
 [build-dependencies]
 uniffi = { version = "0.28", features = ["build"] }
 

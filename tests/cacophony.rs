@@ -51,7 +51,11 @@ fn h(s: &str) -> Vec<u8> {
 
 /// Number of handshake-phase messages for a given protocol name.
 fn hs_msg_count(protocol_name: &str) -> usize {
-    if protocol_name.contains("_NK_") { 2 } else { 3 }
+    if protocol_name.contains("_NK_") {
+        2
+    } else {
+        3
+    }
 }
 
 // ── Core runner ───────────────────────────────────────────────────────────────
@@ -115,9 +119,9 @@ fn run_vector(v: &Vector) {
                 v.protocol_name
             );
             let mut tmp = vec![0u8; 65535];
-            resp_hs.read_message(&buf[..len], &mut tmp).unwrap_or_else(|e| {
-                panic!("[{}] resp read hs msg {i}: {e:?}", v.protocol_name)
-            });
+            resp_hs
+                .read_message(&buf[..len], &mut tmp)
+                .unwrap_or_else(|e| panic!("[{}] resp read hs msg {i}: {e:?}", v.protocol_name));
         } else {
             let len = resp_hs
                 .write_message(&payload, &mut buf)
@@ -129,9 +133,9 @@ fn run_vector(v: &Vector) {
                 v.protocol_name
             );
             let mut tmp = vec![0u8; 65535];
-            init_hs.read_message(&buf[..len], &mut tmp).unwrap_or_else(|e| {
-                panic!("[{}] init read hs msg {i}: {e:?}", v.protocol_name)
-            });
+            init_hs
+                .read_message(&buf[..len], &mut tmp)
+                .unwrap_or_else(|e| panic!("[{}] init read hs msg {i}: {e:?}", v.protocol_name));
         }
     }
 
@@ -151,8 +155,12 @@ fn run_vector(v: &Vector) {
     );
 
     // Transition to transport mode.
-    let mut init_t = init_hs.into_transport_mode().expect("init into_transport_mode");
-    let mut resp_t = resp_hs.into_transport_mode().expect("resp into_transport_mode");
+    let mut init_t = init_hs
+        .into_transport_mode()
+        .expect("init into_transport_mode");
+    let mut resp_t = resp_hs
+        .into_transport_mode()
+        .expect("resp into_transport_mode");
 
     // ── Transport phase ──────────────────────────────────────────────────────
     //
@@ -166,13 +174,20 @@ fn run_vector(v: &Vector) {
         let payload = h(&msg.payload);
         let expected_ct = h(&msg.ciphertext);
         // With resp_sends_first, odd t_idx = init sends; even = resp sends.
-        let init_sends = if resp_sends_first { t_idx % 2 != 0 } else { t_idx % 2 == 0 };
+        let init_sends = if resp_sends_first {
+            t_idx % 2 != 0
+        } else {
+            t_idx % 2 == 0
+        };
 
         if init_sends {
             let len = init_t
                 .write_message(&payload, &mut buf)
                 .unwrap_or_else(|e| {
-                    panic!("[{}] init write transport msg {t_idx}: {e:?}", v.protocol_name)
+                    panic!(
+                        "[{}] init write transport msg {t_idx}: {e:?}",
+                        v.protocol_name
+                    )
                 });
             assert_eq!(
                 &buf[..len],
@@ -181,16 +196,28 @@ fn run_vector(v: &Vector) {
                 v.protocol_name
             );
             let mut pt = vec![0u8; 65535];
-            let pt_len = resp_t.read_message(&buf[..len], &mut pt).unwrap_or_else(|e| {
-                panic!("[{}] resp read transport msg {t_idx}: {e:?}", v.protocol_name)
-            });
-            assert_eq!(&pt[..pt_len], payload.as_slice(),
-                "[{}] transport msg {t_idx} plaintext mismatch", v.protocol_name);
+            let pt_len = resp_t
+                .read_message(&buf[..len], &mut pt)
+                .unwrap_or_else(|e| {
+                    panic!(
+                        "[{}] resp read transport msg {t_idx}: {e:?}",
+                        v.protocol_name
+                    )
+                });
+            assert_eq!(
+                &pt[..pt_len],
+                payload.as_slice(),
+                "[{}] transport msg {t_idx} plaintext mismatch",
+                v.protocol_name
+            );
         } else {
             let len = resp_t
                 .write_message(&payload, &mut buf)
                 .unwrap_or_else(|e| {
-                    panic!("[{}] resp write transport msg {t_idx}: {e:?}", v.protocol_name)
+                    panic!(
+                        "[{}] resp write transport msg {t_idx}: {e:?}",
+                        v.protocol_name
+                    )
                 });
             assert_eq!(
                 &buf[..len],
@@ -199,11 +226,20 @@ fn run_vector(v: &Vector) {
                 v.protocol_name
             );
             let mut pt = vec![0u8; 65535];
-            let pt_len = init_t.read_message(&buf[..len], &mut pt).unwrap_or_else(|e| {
-                panic!("[{}] init read transport msg {t_idx}: {e:?}", v.protocol_name)
-            });
-            assert_eq!(&pt[..pt_len], payload.as_slice(),
-                "[{}] transport msg {t_idx} plaintext mismatch", v.protocol_name);
+            let pt_len = init_t
+                .read_message(&buf[..len], &mut pt)
+                .unwrap_or_else(|e| {
+                    panic!(
+                        "[{}] init read transport msg {t_idx}: {e:?}",
+                        v.protocol_name
+                    )
+                });
+            assert_eq!(
+                &pt[..pt_len],
+                payload.as_slice(),
+                "[{}] transport msg {t_idx} plaintext mismatch",
+                v.protocol_name
+            );
         }
     }
 }
@@ -213,7 +249,10 @@ fn run_vector(v: &Vector) {
 #[test]
 fn cacophony_noise_nk_and_xx_spec_vectors() {
     let suite = load_suite();
-    assert!(!suite.vectors.is_empty(), "cacophony.json loaded zero vectors");
+    assert!(
+        !suite.vectors.is_empty(),
+        "cacophony.json loaded zero vectors"
+    );
     for v in &suite.vectors {
         run_vector(v);
     }

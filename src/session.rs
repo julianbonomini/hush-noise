@@ -30,8 +30,7 @@ impl<T: Read + Write> Write for RetryConn<T> {
         loop {
             match self.0.write(buf) {
                 Err(e)
-                    if e.kind() == ErrorKind::WouldBlock
-                        || e.kind() == ErrorKind::Interrupted =>
+                    if e.kind() == ErrorKind::WouldBlock || e.kind() == ErrorKind::Interrupted =>
                 {
                     std::thread::sleep(std::time::Duration::from_micros(50));
                 }
